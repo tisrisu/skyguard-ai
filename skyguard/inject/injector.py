@@ -278,7 +278,8 @@ def build_test_set(df: pd.DataFrame, stations: list[dict],
     }
 
 
-    def _find_free_slot(sid: str, var: str, dur_h: int, attempts: int = 200) -> int | None:
+    from typing import Optional
+    def _find_free_slot(sid: str, var: str, dur_h: int, attempts: int = 200) -> Optional[int]:
         """Find a random starting index where dur_h consecutive hours are free."""
         occ = occupied[(sid, var)]
         for _ in range(attempts):
