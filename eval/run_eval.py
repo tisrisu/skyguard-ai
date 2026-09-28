@@ -18,9 +18,29 @@ from skyguard.config import INJECTED_DIR, REPORTS_DIR  # noqa: E402
 
 
 def run(labelled: pd.DataFrame) -> dict:
-    """TODO: build Climatology on the train split, load the IFModel,
-    run Engine over `labelled`, then return evaluate(results, labelled)."""
-    raise NotImplementedError
+    from skyguard.config import load_config
+    from skyguard.data.io import load_data, load_stations
+    from skyguard.data.climatology import Climatology
+    from skyguard.models.iforest import IFModel
+    from skyguard.engine import Engine
+    from skyguard.evaluation import evaluate
+
+    cfg = load_config()
+    df_all = load_data()
+    stations = load_stations()
+
+    train_start, train_end = cfg["splits"]["train"]
+    train_df = df_all[(df_all["ts"] >= train_start) & (df_all["ts"] <= train_end)]
+
+    clim = Climatology().fit(train_df)
+    
+    model = IFModel()
+    model.load()
+
+    engine = Engine(df=labelled, stations=stations, clim=clim, model=model, cfg=cfg)
+    results_df = engine.run(labelled["ts"].min(), labelled["ts"].max())
+
+    return evaluate(results_df, labelled)
 
 
 def main() -> None:

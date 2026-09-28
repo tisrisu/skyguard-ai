@@ -258,12 +258,15 @@ def inject_storm(df: pd.DataFrame, stations: list[dict], center_id: str,
     return df
 
 
-def build_test_set(df: pd.DataFrame, stations: list[dict],
+def build_test_set(df: pd.DataFrame, stations: list[dict] | None = None,
                    seed: int = 42) -> pd.DataFrame:
     """~40 faults of each type + ~10 storms, non-overlapping, on the given data slice.
 
     Returns the modified df with label columns set.
     """
+    if stations is None:
+        from skyguard.data.io import load_stations
+        stations = load_stations()
     df = add_label_columns(df)
     rng = np.random.default_rng(seed)
 
