@@ -73,7 +73,7 @@ python -m skyguard.data.clean
 :: build the validation and test sets with injected faults
 python -m skyguard.inject.injector
 
-:: start the dashboard
+:: start the dashboard (from PowerShell: .\run_demo.bat)
 run_demo.bat
 ```
 

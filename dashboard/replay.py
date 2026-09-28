@@ -15,6 +15,7 @@ from skyguard.data.climatology import Climatology
 from skyguard.data.io import load_data, select_split
 from skyguard.geo import neighbours
 from skyguard.inject.injector import add_label_columns, inject_fault, inject_storm
+from skyguard.physics.dewpoint import dewpoint_c
 from skyguard.schemas import (LABEL_COLUMNS, NAMES, ORIG_COLUMNS, UNITS, VARIABLES,
                               FaultType, Result, Severity, Status)
 
@@ -54,13 +55,15 @@ class PreviewSource:
     def step(self, df, ts):
         now = df[df["ts"] == ts].set_index("station_id")
         before = df[df["ts"] == ts - pd.Timedelta(hours=1)].set_index("station_id")
+        reach = pd.Timedelta(hours=self.cfg["spatial"]["time_window_h"])
+        around = df[(df["ts"] >= ts - reach) & (df["ts"] <= ts + reach)]
         out = []
         for sid, row in now.iterrows():
             for var in VARIABLES:
-                out.append(self._result(sid, ts, var, row, now, before).to_dict())
+                out.append(self._result(sid, ts, var, row, now, before, around).to_dict())
         return out
 
-    def _result(self, sid, ts, var, row, now, before):
+    def _result(self, sid, ts, var, row, now, before, around):
         value = float(row[var])
         res = Result(station_id=sid, ts=ts.strftime("%Y-%m-%dT%H:%M:%SZ"), variable=var,
                      value=None if pd.isna(value) else value)
@@ -74,6 +77,7 @@ class PreviewSource:
 
         if res.status != Status.NORMAL:
             res.reasons = self._facts(sid, var, value, now, before)
+            res.scores = self._evidence(sid, var, row, around)
         res.trust = self._update_trust(sid, var, res.status, res.severity)
         return res
 
@@ -83,15 +87,46 @@ class PreviewSource:
         if not is_valid(value, var, self.cfg):
             facts.append(f"Reported {value:g} {unit}, outside the valid range" if not pd.isna(value)
                          else "No reading received")
-        elif sid in before.index and is_valid(before.at[sid, var], var, self.cfg):
-            change = value - before.at[sid, var]
-            facts.append(f"{name} {'rose' if change >= 0 else 'fell'} {abs(change):.1f} {unit} in the last hour")
+        elif sid in before.index:
+            # compare with what the sensor should have read an hour ago, not a flagged value
+            faulty = before.at[sid, LABEL_COLUMNS[var]] != FaultType.NONE
+            previous = before.at[sid, ORIG_COLUMNS[var] if faulty else var]
+            if is_valid(previous, var, self.cfg):
+                change = value - previous
+                facts.append(f"{name} {'rose' if change >= 0 else 'fell'} {abs(change):.1f} {unit} in the last hour")
 
         others = [now.at[n, var] for n in self.nearby[sid] if n in now.index]
         others = [v for v in others if is_valid(v, var, self.cfg)]
         if others:
             facts.append(f"Neighbour median {np.median(others):.1f} {unit} ({len(others)} stations)")
         return facts
+
+    def _evidence(self, sid, var, row, around):
+        """Simple physics and neighbour numbers in the same shape the engine reports.
+
+        A front reaches stations at different times, so the neighbours are compared at
+        every hour within spatial.time_window_h and the closest match is kept.
+        """
+        value = row[var]
+        physics = not is_valid(value, var, self.cfg)
+        if var in ("temp_c", "rh_pct") and is_valid(row["temp_c"], "temp_c", self.cfg)                 and is_valid(row["rh_pct"], "rh_pct", self.cfg):
+            physics |= dewpoint_c(row["temp_c"], row["rh_pct"]) > self.cfg["physics"]["dewpoint_max_c"]
+
+        z = None
+        if is_valid(value, var, self.cfg):
+            spatial = self.cfg["spatial"]
+            nearby = around[around["station_id"].isin(self.nearby[sid])]
+            for _, hour in nearby.groupby("ts"):
+                others = hour[var].to_numpy(dtype=float)
+                others = others[[is_valid(v, var, self.cfg) for v in others]]
+                if len(others) < spatial["min_neighbours"]:
+                    continue
+                centre = np.median(others)
+                spread = 1.4826 * np.median(np.abs(others - centre)) + spatial["mad_floor"][var]
+                candidate = float((value - centre) / spread)
+                if z is None or abs(candidate) < abs(z):
+                    z = candidate
+        return {"physics": float(physics), "spatial_z": z}
 
     def _update_trust(self, sid, var, status, severity):
         cfg = self.cfg["trust"]

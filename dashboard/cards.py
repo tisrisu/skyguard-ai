@@ -5,6 +5,7 @@ from html import escape
 import pandas as pd
 
 from charts import IST, STATUS_COLOR, STATUS_LABEL
+from skyguard.config import load_config
 from skyguard.schemas import NAMES, UNITS, Status
 
 LEGEND = '<div class="sg-legend">' + "".join(
@@ -34,7 +35,7 @@ def header(now: pd.Timestamp, playing: bool, source: str, notice: str | None) ->
 <div class="sg-header">
   <div>
     <div class="sg-brand">Sky<span>Guard</span></div>
-    <div class="sg-sub">Automatic weather station monitor &middot; Delhi-NCR, 8 stations</div>
+    <div class="sg-sub">Sensor integrity monitor for automatic weather stations &middot; Delhi-NCR, 8 stations</div>
   </div>
   <div class="sg-clock">
     <span class="sg-pill{' live' if playing else ''}">{'Replaying' if playing else 'Paused'}</span>
@@ -70,6 +71,26 @@ def _reasons(reasons) -> str:
     return "<ul>" + "".join(f"<li>{escape(str(r))}</li>" for r in reasons) + "</ul>"
 
 
+def _evidence(scores: dict) -> str:
+    """The three checks behind a decision: pass, fail, or not available yet."""
+    cfg = load_config()
+    physics, z, ml = scores.get("physics"), scores.get("spatial_z"), scores.get("iforest")
+    checks = [
+        ("Physics", None if physics is None else physics < 0.5, "plausible", "impossible"),
+        ("Neighbours", None if z is None else abs(z) <= cfg["spatial"]["z_threshold"],
+         "agree" if z is None else f"agree, z {z:.1f}", "" if z is None else f"disagree, z {z:.1f}"),
+        ("Pattern", None if ml is None else ml < cfg["ml"]["high"], "typical", "unusual"),
+    ]
+    pills = []
+    for name, ok, good, bad in checks:
+        if ok is None:
+            pills.append(f'<span class="sg-check na">{name} <i>&ndash;</i></span>')
+        else:
+            mark, css, text = ("&#10003;", "pass", good) if ok else ("&#10007;", "fail", bad)
+            pills.append(f'<span class="sg-check {css}">{mark} {name} <i>{text}</i></span>')
+    return f'<div class="sg-evidence">{"".join(pills)}</div>'
+
+
 def alert_card(item: dict, names: dict, now: pd.Timestamp) -> str:
     if item["kind"] == "weather":
         return _weather_card(item, now)
@@ -95,6 +116,7 @@ def alert_card(item: dict, names: dict, now: pd.Timestamp) -> str:
   <div class="sg-title">{escape(sid)} {escape(names.get(sid, ''))} &middot; {NAMES[var]}</div>
   <div class="sg-kind">{kind}</div>
   <div class="sg-values">{values}</div>
+  {_evidence(item.get('scores') or {})}
   {_reasons(item['reasons'])}
   <div class="sg-foot"><span>Confidence {item['confidence']:.0%}</span>
     <span>Trust {item['trust_before']:.0f} &rarr; {item['trust_after']:.0f}</span></div>
@@ -111,6 +133,7 @@ def _weather_card(item: dict, now: pd.Timestamp) -> str:
   <div class="sg-title">Weather event at {len(stations)} station{'s' if len(stations) > 1 else ''}</div>
   <div class="sg-kind">Genuine event &middot; no action needed</div>
   <div class="sg-values"><small>{escape(', '.join(stations))}</small></div>
+  {_evidence(item.get('scores') or {})}
   {_reasons(item['reasons'])}
   <div class="sg-foot"><span>Confidence {item['confidence']:.0%}</span>
     <span>Readings kept as reported</span></div>

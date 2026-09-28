@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from skyguard.schemas import VARIABLES, Severity, Status, worst_status
+from skyguard.schemas import NAMES, VARIABLES, Severity, Status, worst_status
 
 FLAGGED = (Status.SENSOR_FAULT, Status.SUSPECT)
 SEVERITY_ORDER = {s: i for i, s in enumerate(Severity.ALL)}
@@ -45,6 +45,7 @@ def fault_runs(results: pd.DataFrame) -> list[dict]:
             "value": peak["value"],
             "corrected": peak["corrected_value"],
             "reasons": list(peak["reasons"]),
+            "scores": peak["scores"] if isinstance(peak["scores"], dict) else {},
             "start": start,
             "end": end,
             "trust_before": float(trust.get((peak["station_id"], peak["variable"], start - HOUR), 100.0)),
@@ -64,9 +65,15 @@ def weather_events(results: pd.DataFrame) -> list[dict]:
         hours = hours.assign(run=_new_run(hours, ["station_id"]).cumsum())
         for _, run in hours.groupby("run"):
             first = genuine[(genuine["station_id"] == sid) & (genuine["ts"] == run["ts"].iloc[0])]
+            first = first.sort_values("variable", key=lambda v: v != "temp_c")   # temperature tells the story best
+            # evidence from the latest hour: by then the front has reached the neighbours too
+            latest = genuine[(genuine["station_id"] == sid) & (genuine["ts"] == run["ts"].iloc[-1])]
+            latest = latest.sort_values("variable", key=lambda v: v != "temp_c")
+            scores = latest.iloc[0]["scores"]
             per_station.append({"station_id": sid, "start": run["ts"].iloc[0], "end": run["ts"].iloc[-1],
                                 "confidence": float(g["confidence"].max()),
-                                "reasons": list(first.iloc[0]["reasons"])})
+                                "reasons": list(first.iloc[0]["reasons"]),
+                                "scores": scores if isinstance(scores, dict) else {}})
 
     events = []
     for part in sorted(per_station, key=lambda p: p["start"]):
@@ -78,7 +85,7 @@ def weather_events(results: pd.DataFrame) -> list[dict]:
             events.append({"kind": "weather", "status": Status.GENUINE_EVENT, "start": part["start"],
                            "end": part["end"], "stations": [part["station_id"]],
                            "station_id": part["station_id"], "confidence": part["confidence"],
-                           "reasons": part["reasons"]})
+                           "reasons": part["reasons"], "scores": part["scores"]})
     return events
 
 
@@ -117,6 +124,7 @@ def trust_table(results: pd.DataFrame, now: pd.Timestamp, names: dict) -> pd.Dat
     table = current.pivot(index="station_id", columns="variable", values="trust")
     table = table.reindex(columns=list(VARIABLES))
     table.insert(0, "station", [names.get(s, s) for s in table.index])
+    table.index.name = "ID"
     return table
 
 
@@ -132,3 +140,26 @@ def maintenance(results: pd.DataFrame, now: pd.Timestamp, threshold: float = 50)
         "last_fault": last_fault.get((r.station_id, r.variable)),
     } for r in current.itertuples(index=False)]
     return pd.DataFrame(rows, columns=["station_id", "variable", "trust", "last_fault"]).sort_values("trust")
+
+
+def alert_log(results: pd.DataFrame, names: dict, tz: str) -> pd.DataFrame:
+    """Every fault run and weather event in the kept history, newest first, for export."""
+    rows = []
+    for item in fault_runs(results) + weather_events(results):
+        weather = item["kind"] == "weather"
+        rows.append({
+            "start": item["start"].tz_convert(tz).strftime("%Y-%m-%d %H:%M"),
+            "end": item["end"].tz_convert(tz).strftime("%Y-%m-%d %H:%M"),
+            "hours": int((item["end"] - item["start"]) / HOUR) + 1,
+            "station": ", ".join(item["stations"]) if weather else f"{item['station_id']} {names.get(item['station_id'], '')}",
+            "sensor": "" if weather else NAMES[item["variable"]],
+            "status": item["status"],
+            "fault_type": "" if weather else (item["fault_type"] or ""),
+            "severity": "" if weather else (item["severity"] or ""),
+            "confidence": round(item["confidence"], 2),
+            "reported": None if weather else item["value"],
+            "corrected": None if weather else item["corrected"],
+        })
+    columns = ["start", "end", "hours", "station", "sensor", "status", "fault_type", "severity",
+               "confidence", "reported", "corrected"]
+    return pd.DataFrame(rows, columns=columns).sort_values("start", ascending=False, ignore_index=True)

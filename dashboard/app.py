@@ -179,6 +179,16 @@ def health_tab(r: Replay, names: dict):
                 "trust": st.column_config.ProgressColumn("Trust", min_value=0, max_value=100, format="%.0f"),
             })
 
+    st.html(cards.section("Alert log, last 7 days (IST)"))
+    log = summary.alert_log(r.results, names, charts.IST)
+    if log.empty:
+        st.html(cards.empty("Nothing flagged yet."))
+        return
+    st.dataframe(log, hide_index=True, width="stretch", height=min(38 + 35 * len(log), 320))
+    st.download_button("Download CSV", log.to_csv(index=False).encode("utf-8"), icon=":material/download:",
+                       file_name=f"skyguard_alerts_{r.now.tz_convert(charts.IST):%Y%m%d_%H%M}.csv",
+                       mime="text/csv")
+
 
 def score_tab():
     path = REPORTS_DIR / "metrics.json"

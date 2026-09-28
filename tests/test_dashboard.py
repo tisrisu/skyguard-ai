@@ -59,3 +59,30 @@ def test_clear_injections_restores_recorded_data(replay):
 def test_second_storm_on_the_same_station_is_refused(replay):
     assert replay.inject_storm("A") is not None
     assert replay.inject_storm("A") is None
+
+
+def test_evidence_separates_fault_from_weather(replay):
+    replay.inject_spike("A")
+    replay.advance(1)
+    replay.inject_storm("B")
+    replay.advance(4)
+
+    feed = summary.alert_feed(replay.results, replay.now - pd.Timedelta(hours=48))
+    fault = next(c for c in feed if c["kind"] == "fault")
+    weather = next(c for c in feed if c["kind"] == "weather")
+    z_limit = load_config()["spatial"]["z_threshold"]
+    assert fault["scores"]["physics"] == 1.0                   # 55 °C at this humidity: impossible dewpoint
+    assert abs(fault["scores"]["spatial_z"]) > z_limit
+    assert weather["scores"]["physics"] == 0.0
+    assert abs(weather["scores"]["spatial_z"]) <= z_limit
+
+
+def test_alert_log_lists_every_event(replay):
+    replay.inject_spike("A")
+    replay.advance(1)
+    replay.inject_storm("B")
+    replay.advance(4)
+
+    log = summary.alert_log(replay.results, {"A": "Alpha"}, "Asia/Kolkata")
+    assert set(log["status"]) == {"SENSOR_FAULT", "GENUINE_EVENT"}
+    assert log.loc[log["status"] == "SENSOR_FAULT", "station"].item() == "A Alpha"
