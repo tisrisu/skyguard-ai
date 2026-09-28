@@ -29,8 +29,8 @@ def header(now: pd.Timestamp, playing: bool, source: str, notice: str | None) ->
     utc, local = now.tz_convert(TZ), now.tz_convert(IST)
     note = ""
     if notice:
-        note = (f'<div class="sg-note">{escape(source)} data: showing the fault injector\'s labels. '
-                f'{escape(notice)}.</div>')
+        note = (f'<div class="sg-note">{escape(source)}: faults come from the fault injector and are '
+                f'confirmed with simple physics and neighbour checks. {escape(notice)}.</div>')
     return f"""
 <div class="sg-header">
   <div>
@@ -54,7 +54,7 @@ def band(score: float) -> str:
     return "FAILED"
 
 
-def tiles(k: dict, names: dict) -> str:
+def tiles(k: dict) -> str:
     step = f"{k['step_ms']:.0f} ms" if k["step_ms"] is not None else "&ndash;"
     if k["lowest_trust"] is None:
         lowest, lowest_label, lowest_css = "&ndash;", "Lowest sensor trust", ""

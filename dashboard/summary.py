@@ -115,7 +115,8 @@ def station_status(results: pd.DataFrame, now: pd.Timestamp) -> dict[str, dict]:
 def kpis(results: pd.DataFrame, now: pd.Timestamp, step_ms: list[float]) -> dict:
     day = results[results["ts"] > now - pd.Timedelta(hours=24)]
     current = results[results["ts"] == now]
-    runs = fault_runs(day)
+    # suspects are not counted: nothing has confirmed them yet
+    runs = [r for r in fault_runs(day) if r["status"] == Status.SENSOR_FAULT]
     lowest = current.loc[current["trust"].idxmin()] if not current.empty else None
     return {
         "lowest_trust": None if lowest is None else float(lowest["trust"]),

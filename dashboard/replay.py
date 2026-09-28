@@ -2,8 +2,9 @@
 
 The dashboard asks a source for the results at each hour. EngineSource wraps
 skyguard.engine.Engine. Until the engine is implemented, PreviewSource stands in:
-it reports what the fault injector put into the data, so the interface can be
-built and tested. The header always shows which source is running.
+it takes the faults the injector put into the data and confirms them with simple
+physics and neighbour checks, so the interface can be built and tested. The header
+always shows which source is running.
 """
 
 import time
@@ -51,7 +52,7 @@ def is_valid(value, var, cfg) -> bool:
 
 
 class PreviewSource:
-    """Stand-in for the detector: reports the injector's labels, with simple facts as reasons."""
+    """Stand-in for the detector: injector labels, confirmed by simple physics and neighbour checks."""
 
     name = "Preview"
 

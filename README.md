@@ -66,7 +66,7 @@ pip install -r requirements.txt
 :: run tests
 pytest
 
-:: download and prepare data
+:: download and prepare data (already in the repo; only needed to rebuild it)
 python -m skyguard.data.fetch
 python -m skyguard.data.clean
 
@@ -77,7 +77,7 @@ python -m skyguard.inject.injector
 run_demo.bat
 ```
 
-The dashboard replays the test period (July to December 2024) hour by hour. Use the sidebar to add a temperature spike, a frozen sensor or a thunderstorm at any station and watch how each one is classified. Until `skyguard/engine.py` is implemented it runs in preview mode and shows the fault injector's labels; the header says so.
+The dashboard replays the test period (July to December 2024) hour by hour. Use the sidebar to add a temperature spike, a frozen sensor or a thunderstorm at any station and watch how each one is classified. Until `skyguard/engine.py` is implemented it runs in preview mode: faults come from the injector and are confirmed with simple physics and neighbour checks. The header says so, and the real detector is used automatically once the engine works.
 
 ## Team
 

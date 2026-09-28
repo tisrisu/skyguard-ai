@@ -16,7 +16,6 @@ from skyguard.schemas import FaultType, NAMES, UNITS, VARIABLES, Status
 TZ = "UTC"               # observations are timed in UTC, as IMD reports them
 IST = "Asia/Kolkata"
 
-PAPER = "#F4EFE3"
 PAPER_DEEP = "#EAE3D2"
 INK = "#2A251F"
 MUTED = "#7B705F"
@@ -126,12 +125,12 @@ def network_map(stations: list[dict], status: dict, selected: str | None) -> go.
     fig.add_annotation(x=right - ten_km / 2, y=bottom, text="10 km", showarrow=False, yshift=10,
                        font=dict(color=MUTED, size=11))
 
+    fig = _style(fig, 430)
+    fig.update_layout(showlegend=False, uirevision="network", margin=dict(l=0, r=0, t=0, b=0))
     fig.update_xaxes(visible=False, showgrid=False, minor_showgrid=False, range=[min(x) - 0.06, max(x) + 0.06])
     fig.update_yaxes(visible=False, showgrid=False, minor_showgrid=False, range=[min(y) - 0.09, max(y) + 0.07],
                      scaleanchor="x", scaleratio=1)
-    fig.update_layout(showlegend=False, uirevision="network")
-    fig = _style(fig, 430).update_layout(margin=dict(l=0, r=0, t=0, b=0))
-    return fig.update_xaxes(showgrid=False, minor_showgrid=False).update_yaxes(showgrid=False, minor_showgrid=False)
+    return fig
 
 
 def _hour_runs(stamps: pd.Series):

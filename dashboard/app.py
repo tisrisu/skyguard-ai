@@ -205,7 +205,7 @@ def page():
     names = {s["station_id"]: s["name"] for s in r.stations}
 
     st.html(cards.header(r.now, st.session_state.playing, r.source.name, r.notice))
-    st.html(cards.tiles(summary.kpis(r.results, r.now, r.step_ms), names))
+    st.html(cards.tiles(summary.kpis(r.results, r.now, r.step_ms)))
 
     live, health, score = st.tabs(["Live monitor", "Sensor health", "Scorecard"])
     with live:
