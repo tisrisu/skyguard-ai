@@ -72,7 +72,8 @@ class Result:
     shap_top: list[tuple[str, float]] = field(default_factory=list)
     corrected_value: float | None = None
     trust: float = 100.0
-    scores: dict = field(default_factory=dict)   # e.g. {"physics": 1.0, "iforest": 0.99, "spatial_z": 9.4}
+    # e.g. {"physics": 1.0, "physics_rule": "FLATLINE", "iforest": 0.99, "spatial_z": 9.4}
+    scores: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)

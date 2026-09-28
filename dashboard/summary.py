@@ -27,21 +27,24 @@ def fault_runs(results: pd.DataFrame) -> list[dict]:
         return []
     flagged["fault_type"] = flagged["fault_type"].fillna("")
     flagged = flagged.sort_values(["station_id", "variable", "ts"])
-    flagged["run"] = _new_run(flagged, ["station_id", "variable", "status", "fault_type"]).cumsum()
+    flagged["run"] = _new_run(flagged, ["station_id", "variable", "fault_type"]).cumsum()
 
     trust = results.set_index(["station_id", "variable", "ts"])["trust"]
     runs = []
     for _, g in flagged.groupby("run"):
-        peak = g.loc[g["confidence"].idxmax()]
+        # show the hour where the fault is plainest: the biggest gap between reported and
+        # corrected value, else the latest hour (a frozen sensor looks normal when it starts)
+        gap = (g["value"] - g["corrected_value"]).abs()
+        peak = g.loc[gap.idxmax()] if gap.notna().any() and gap.max() > 0 else g.iloc[-1]
         start, end = g["ts"].iloc[0], g["ts"].iloc[-1]
         runs.append({
             "kind": "fault",
             "station_id": peak["station_id"],
             "variable": peak["variable"],
-            "status": peak["status"],
+            "status": worst_status(g["status"]),
             "fault_type": peak["fault_type"] or None,
             "severity": _worst_severity(g["severity"]),
-            "confidence": float(peak["confidence"]),
+            "confidence": float(g["confidence"].max()),
             "value": peak["value"],
             "corrected": peak["corrected_value"],
             "reasons": list(peak["reasons"]),

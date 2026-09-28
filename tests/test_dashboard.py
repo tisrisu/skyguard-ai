@@ -109,3 +109,19 @@ def test_lowest_trust_tile_reacts_to_a_fault(replay):
     k = summary.kpis(replay.results, replay.now, replay.step_ms)
     assert k["lowest_trust"] < before
     assert k["lowest_sensor"] == ("C", "temp_c")
+
+
+def test_frozen_sensor_is_suspect_until_the_flatline_rule_confirms_it(replay):
+    replay.inject_freeze("A", var="rh_pct", hours=12)
+    steps = load_config()["physics"]["flatline_steps"]["rh_pct"]
+
+    replay.advance(1)
+    first = sum(summary.alert_feed(replay.results, replay.now), [])
+    assert [c["status"] for c in first] == ["SUSPECT"]
+
+    replay.advance(steps)
+    card = sum(summary.alert_feed(replay.results, replay.now), [])
+    assert len(card) == 1                                      # one card, upgraded in place
+    assert card[0]["status"] == "SENSOR_FAULT"
+    assert card[0]["scores"]["physics_rule"] == "FLATLINE"
+    assert "in a row" in card[0]["reasons"][0]

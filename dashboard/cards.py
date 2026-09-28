@@ -118,23 +118,38 @@ def _reasons(reasons) -> str:
     return "<ul>" + "".join(f"<li>{escape(str(r))}</li>" for r in reasons) + "</ul>"
 
 
+PHYSICS_FAIL = {
+    "FLATLINE": "stuck",
+    "RANGE": "out of range",
+    "MISSING": "no reading",
+    "DEWPOINT_MAX": "impossible dewpoint",
+}
+CHECK_HELP = {
+    "Physics": "Valid range, impossible dewpoint, and the same value repeated for hours",
+    "Neighbours": "Compared with the median of nearby stations; z is how many typical spreads away",
+    "Pattern": "Isolation Forest score from the detection engine",
+}
+
+
 def _evidence(scores: dict) -> str:
     """The three checks behind a decision: pass, fail, or not available yet."""
     cfg = load_config()
     physics, z, ml = scores.get("physics"), scores.get("spatial_z"), scores.get("iforest")
     checks = [
-        ("Physics", None if physics is None else physics < 0.5, "plausible", "impossible"),
+        ("Physics", None if physics is None else physics < 0.5, "plausible",
+         PHYSICS_FAIL.get(scores.get("physics_rule"), "implausible")),
         ("Neighbours", None if z is None else abs(z) <= cfg["spatial"]["z_threshold"],
-         "agree" if z is None else f"agree, z {z:.1f}", "" if z is None else f"disagree, z {z:.1f}"),
+         "in line" if z is None else f"in line, z {z:.1f}", "" if z is None else f"out of line, z {z:.1f}"),
         ("Pattern", None if ml is None else ml < cfg["ml"]["high"], "typical", "unusual"),
     ]
     pills = []
     for name, ok, good, bad in checks:
+        tip = escape(CHECK_HELP[name])
         if ok is None:
-            pills.append(f'<span class="sg-check na">{name} <i>&ndash;</i></span>')
+            pills.append(f'<span class="sg-check na" title="{tip}">{name} <i>&ndash;</i></span>')
         else:
             mark, css, text = ("&#10003;", "pass", good) if ok else ("&#10007;", "fail", bad)
-            pills.append(f'<span class="sg-check {css}">{mark} {name} <i>{text}</i></span>')
+            pills.append(f'<span class="sg-check {css}" title="{tip}">{mark} {name} <i>{text}</i></span>')
     return f'<div class="sg-evidence">{"".join(pills)}</div>'
 
 

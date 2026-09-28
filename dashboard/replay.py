@@ -32,6 +32,19 @@ PREVIEW_SEVERITY = {
 }
 
 
+def same_value_run(values) -> int:
+    """How many readings in a row, ending with the latest, have exactly the same value."""
+    values = list(values)
+    if not values or pd.isna(values[-1]):
+        return 0
+    run = 1
+    for v in reversed(values[:-1]):
+        if v != values[-1]:
+            break
+        run += 1
+    return run
+
+
 def is_valid(value, var, cfg) -> bool:
     lo, hi = cfg["physics"]["range"][var]
     return value is not None and not pd.isna(value) and lo <= value <= hi
@@ -57,36 +70,51 @@ class PreviewSource:
         before = df[df["ts"] == ts - pd.Timedelta(hours=1)].set_index("station_id")
         reach = pd.Timedelta(hours=self.cfg["spatial"]["time_window_h"])
         around = df[(df["ts"] >= ts - reach) & (df["ts"] <= ts + reach)]
+        lookback = pd.Timedelta(hours=max(self.cfg["physics"]["flatline_steps"].values()))
+        recent = df[(df["ts"] > ts - lookback) & (df["ts"] <= ts)]
+        recent = {sid: g.sort_values("ts") for sid, g in recent.groupby("station_id")}
         out = []
         for sid, row in now.iterrows():
             for var in VARIABLES:
-                out.append(self._result(sid, ts, var, row, now, before, around).to_dict())
+                run = same_value_run(recent[sid][var]) if sid in recent else 0
+                out.append(self._result(sid, ts, var, row, now, before, around, run).to_dict())
         return out
 
-    def _result(self, sid, ts, var, row, now, before, around):
+    def _result(self, sid, ts, var, row, now, before, around, run):
         value = float(row[var])
         res = Result(station_id=sid, ts=ts.strftime("%Y-%m-%dT%H:%M:%SZ"), variable=var,
                      value=None if pd.isna(value) else value)
         label = row[LABEL_COLUMNS[var]]
         if label != FaultType.NONE:
-            res.status, res.fault_type = Status.SENSOR_FAULT, label
-            res.severity, res.confidence = PREVIEW_SEVERITY[label], 0.9
+            # the label says there is a fault; it is only called one when a check agrees,
+            # otherwise it stays suspect (a frozen sensor looks normal for its first hours)
+            res.scores = self._evidence(sid, var, row, around, run)
+            z = res.scores["spatial_z"]
+            confirmed = res.scores["physics"] >= 0.5 or (
+                z is not None and abs(z) > self.cfg["spatial"]["z_threshold"])
+            res.fault_type = label
             res.corrected_value = float(row[ORIG_COLUMNS[var]])
+            if confirmed:
+                res.status, res.severity, res.confidence = Status.SENSOR_FAULT, PREVIEW_SEVERITY[label], 0.9
+            else:
+                res.status, res.severity, res.confidence = Status.SUSPECT, Severity.MEDIUM, 0.5
         elif str(row["event_id"]).startswith("STORM"):
             res.status, res.confidence = Status.GENUINE_EVENT, 0.85
+            res.scores = self._evidence(sid, var, row, around, run)
 
         if res.status != Status.NORMAL:
-            res.reasons = self._facts(sid, var, value, now, before)
-            res.scores = self._evidence(sid, var, row, around)
+            res.reasons = self._facts(sid, var, value, now, before, run)
         res.trust = self._update_trust(sid, var, res.status, res.severity)
         return res
 
-    def _facts(self, sid, var, value, now, before):
+    def _facts(self, sid, var, value, now, before, run):
         unit, name = UNITS[var], NAMES[var]
         facts = []
         if not is_valid(value, var, self.cfg):
             facts.append(f"Reported {value:g} {unit}, outside the valid range" if not pd.isna(value)
                          else "No reading received")
+        elif run >= 2:
+            facts.append(f"{name} has read exactly {value:.1f} {unit} for {run} hours in a row")
         elif sid in before.index:
             # compare with what the sensor should have read an hour ago, not a flagged value
             faulty = before.at[sid, LABEL_COLUMNS[var]] != FaultType.NONE
@@ -98,19 +126,27 @@ class PreviewSource:
         others = [now.at[n, var] for n in self.nearby[sid] if n in now.index]
         others = [v for v in others if is_valid(v, var, self.cfg)]
         if others:
-            facts.append(f"Neighbour median {np.median(others):.1f} {unit} ({len(others)} stations)")
+            facts.append(f"Nearby stations read {np.median(others):.1f} {unit} (median of {len(others)})")
         return facts
 
-    def _evidence(self, sid, var, row, around):
+    def _evidence(self, sid, var, row, around, run):
         """Simple physics and neighbour numbers in the same shape the engine reports.
 
         A front reaches stations at different times, so the neighbours are compared at
         every hour within spatial.time_window_h and the closest match is kept.
         """
+        physics = self.cfg["physics"]
         value = row[var]
-        physics = not is_valid(value, var, self.cfg)
-        if var in ("temp_c", "rh_pct") and is_valid(row["temp_c"], "temp_c", self.cfg)                 and is_valid(row["rh_pct"], "rh_pct", self.cfg):
-            physics |= dewpoint_c(row["temp_c"], row["rh_pct"]) > self.cfg["physics"]["dewpoint_max_c"]
+        rule = None
+        if not is_valid(value, var, self.cfg):
+            rule = "MISSING" if pd.isna(value) or value in physics["sentinels"] else "RANGE"
+        elif var in ("temp_c", "rh_pct") and is_valid(row["temp_c"], "temp_c", self.cfg) \
+                and is_valid(row["rh_pct"], "rh_pct", self.cfg) \
+                and dewpoint_c(row["temp_c"], row["rh_pct"]) > physics["dewpoint_max_c"]:
+            rule = "DEWPOINT_MAX"
+        elif run >= physics["flatline_steps"][var] \
+                and not (var == "rh_pct" and value >= physics["flatline_ignore_rh_above"]):
+            rule = "FLATLINE"
 
         z = None
         if is_valid(value, var, self.cfg):
@@ -126,7 +162,7 @@ class PreviewSource:
                 candidate = float((value - centre) / spread)
                 if z is None or abs(candidate) < abs(z):
                     z = candidate
-        return {"physics": float(physics), "spatial_z": z}
+        return {"physics": float(rule is not None), "physics_rule": rule, "spatial_z": z}
 
     def _update_trust(self, sid, var, status, severity):
         cfg = self.cfg["trust"]
