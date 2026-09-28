@@ -1,0 +1,85 @@
+# All thresholds live here. Tune on the validation split only.
+
+seed: 42
+
+region:
+  name: Delhi NCR
+  center_lat: 28.61
+  center_lon: 77.21
+  max_stations: 8
+  radius_km: 150
+  min_coverage: 0.8        # keep stations with >= 80% non-missing hourly data
+
+period:
+  start: "2022-01-01"
+  end: "2024-12-31"
+
+splits:
+  train: ["2022-01-01", "2023-12-31"]
+  val:   ["2024-01-01", "2024-06-30"]
+  test:  ["2024-07-01", "2024-12-31"]
+
+clean:
+  max_interp_gap_h: 2
+
+physics:
+  range:
+    temp_c: [-30, 55]
+    pressure_hpa: [870, 1085]   # sea-level pressure
+    rh_pct: [0, 102]
+  sentinels: [-9999, -999]
+  rate_of_change_per_h:          # [soft, hard]; null = not used
+    temp_c: [6, 10]
+    pressure_hpa: [3, 6]
+    rh_pct: [40, null]
+  dewpoint_max_c: 35
+  dewpoint_jump_per_h: 8
+  flatline_steps:
+    temp_c: 6
+    pressure_hpa: 12
+    rh_pct: 6
+  flatline_ignore_rh_above: 98   # saturated air can sit at ~100% for hours (fog)
+  decoupled:
+    temp_jump: 6
+    pressure_still: 0.5
+    rh_still: 3
+
+spatial:
+  radius_km: 150
+  min_neighbours: 2
+  time_window_h: 2
+  z_threshold: 3.0
+  mad_floor:
+    temp_c: 0.5
+    pressure_hpa: 0.5
+    rh_pct: 3.0
+
+ml:
+  n_estimators: 200
+  max_samples: 256
+  high: 0.99
+  suspect: 0.95
+
+severity_sigma: [3, 6, 10]       # LOW < 3 <= MEDIUM < 6 <= HIGH < 10 <= CRITICAL
+
+trust:
+  start: 100
+  recovery_per_clean: 0.5
+  penalty:
+    LOW: 2
+    MEDIUM: 5
+    HIGH: 10
+    CRITICAL: 20
+  bands:                          # lower bounds
+    HEALTHY: 80
+    WATCH: 50
+    DEGRADED: 25
+
+drift_tolerance:
+  temp_c: 1.0
+  pressure_hpa: 1.0
+  rh_pct: 5.0
+
+replay:
+  seconds_per_step: 1.0
+  history_hours: 72

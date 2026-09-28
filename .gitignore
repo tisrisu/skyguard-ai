@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Raw downloads (recreate with: python -m skyguard.data.fetch)
+data/raw/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Archives
+*.zip
