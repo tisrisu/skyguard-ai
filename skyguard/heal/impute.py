@@ -1,59 +1,53 @@
 """Corrected value for a faulty reading.
 
 Owner: M1
+
+Two estimates, blended with the weights in config.yaml -> impute:
+  spatial   climatology mean for this station + median anomaly of the neighbours
+  temporal  straight-line extrapolation from the last two valid readings
+Readings that are NaN, sentinels or outside physics.range are ignored.
 """
 
 import numpy as np
 import pandas as pd
 
+from skyguard.config import load_config
+
 
 def impute(history: pd.DataFrame, neighbours_now: pd.DataFrame, clim, station_id: str,
            ts: pd.Timestamp, var: str) -> float:
-    """Best estimate of what the sensor should have read.
+    """Best estimate of what the sensor should have read at ts.
 
     history         this station's rows before ts (faulty rows already excluded if possible)
-    neighbours_now  neighbour rows at ts (+/- spatial.time_window_h)
+    neighbours_now  neighbour rows around ts (± spatial.time_window_h)
     """
-    # 1. Spatial prediction: expected mean for this station + median neighbour anomaly
-    spatial_pred = np.nan
-    expected_mean, _ = clim.expected(station_id, ts, var)
-    
-    if pd.notna(expected_mean) and not neighbours_now.empty:
-        anomalies = []
-        for _, row in neighbours_now.iterrows():
-            if pd.isna(row[var]) or row[var] == -9999.0:
-                continue
-            n_mean, _ = clim.expected(row["station_id"], row["ts"], var)
-            if pd.notna(n_mean):
-                anomalies.append(row[var] - n_mean)
-        
-        if anomalies:
-            med_anomaly = float(np.median(anomalies))
-            spatial_pred = expected_mean + med_anomaly
-
-    # 2. Temporal prediction: linear trend from the last known good values
-    temporal_pred = np.nan
-    if not history.empty:
-        hist_valid = history[history[var].notna()]
-        if len(hist_valid) >= 2:
-            y1, y2 = hist_valid.iloc[-2][var], hist_valid.iloc[-1][var]
-            temporal_pred = y2 + (y2 - y1)  # simple linear extrapolation for 1 hour
-        elif len(hist_valid) == 1:
-            temporal_pred = hist_valid.iloc[-1][var]
-            
-    # 3. Blend them (we trust spatial more for things like storms and sudden changes)
-    from skyguard.config import load_config
     cfg = load_config()
-    w_spatial = cfg.get("impute", {}).get("spatial_weight", 0.7)
-    w_temporal = cfg.get("impute", {}).get("temporal_weight", 0.3)
-    
-    if pd.notna(spatial_pred) and pd.notna(temporal_pred):
-        return float(w_spatial * spatial_pred + w_temporal * temporal_pred)
-    elif pd.notna(spatial_pred):
-        return float(spatial_pred)
-    elif pd.notna(temporal_pred):
-        return float(temporal_pred)
-    elif pd.notna(expected_mean):
-        return float(expected_mean)
-    
+    lo, hi = cfg["physics"]["range"][var]
+    expected_mean, _ = clim.expected(station_id, ts, var)
+
+    spatial = np.nan
+    nearby = neighbours_now[neighbours_now[var].between(lo, hi)]
+    if pd.notna(expected_mean) and not nearby.empty:
+        anomalies = [
+            value - clim.expected(sid, t, var)[0]
+            for sid, t, value in nearby[["station_id", "ts", var]].itertuples(index=False)
+        ]
+        anomalies = [a for a in anomalies if pd.notna(a)]
+        if anomalies:
+            spatial = expected_mean + float(np.median(anomalies))
+
+    temporal = np.nan
+    good = history.loc[history[var].between(lo, hi), var] if not history.empty else pd.Series(dtype=float)
+    if len(good) >= 2:
+        temporal = 2 * good.iloc[-1] - good.iloc[-2]
+    elif len(good) == 1:
+        temporal = good.iloc[-1]
+
+    weights = cfg["impute"]
+    if pd.notna(spatial) and pd.notna(temporal):
+        w_s, w_t = weights["spatial_weight"], weights["temporal_weight"]
+        return float((w_s * spatial + w_t * temporal) / (w_s + w_t))
+    for estimate in (spatial, temporal, expected_mean):
+        if pd.notna(estimate):
+            return float(estimate)
     return float("nan")

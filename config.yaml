@@ -101,6 +101,24 @@ inject:
     DROPOUT: [1, 12]
     NOISE: [6, 24]
     OUT_OF_RANGE: [6, 48]
+  OUT_OF_RANGE_MARGIN:             # how far outside physics.range the stuck value sits
+    temp_c: 5
+    pressure_hpa: 10
+    rh_pct: 5
+  STORM:
+    radius_km: 80
+    front_speed_kmh: 30
+    onset_h: [1, 2]
+    relax_h: 6
+    relax_tau_h: 3
+    temp_drop: [4, 10]
+    rh_rise: [15, 35]
+    pressure_rise: [1, 4]
+    strength: [0.7, 1.3]
+  test_set:
+    faults_per_type: 40
+    storms: 10
+    gap_h: 6                       # clear hours kept around every event
 
 climatology:
   std_floor:

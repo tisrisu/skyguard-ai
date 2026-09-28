@@ -2,335 +2,258 @@
 
 Owner: M1
 
-All functions return a modified copy and set the label columns
-(label_temp_c, label_pressure_hpa, label_rh_pct, event_id).
+Run:  python -m skyguard.inject.injector
+Writes: data/injected/val.parquet and data/injected/test.parquet
+
+All functions return a modified copy. The clean value is kept in orig_<var>, the
+fault type goes in label_<var> and the event in event_id ("SPIKE_003", ...).
+Storms are genuine weather: labels stay NONE and event_id is "STORM_<n>".
+Magnitudes and durations are in config.yaml -> inject.
 """
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 
+from skyguard.config import INJECTED_DIR, load_config
+from skyguard.data.io import load_data, load_stations, select_split
 from skyguard.geo import haversine_km
-from skyguard.schemas import VARIABLES, LABEL_COLUMNS, FaultType
-from skyguard.config import load_config
+from skyguard.schemas import LABEL_COLUMNS, ORIG_COLUMNS, VARIABLES, FaultType
 
-
-# ===================================================================
-# Helpers
-# ===================================================================
 
 def add_label_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Add label_* = "NONE" and event_id = "" if missing."""
+    """Float value columns, plus orig_*, label_* ("NONE") and event_id ("") where missing."""
     df = df.copy()
-    for col in LABEL_COLUMNS.values():
-        if col not in df.columns:
-            df[col] = FaultType.NONE
+    for var in VARIABLES:
+        df[var] = df[var].astype(float)
+        if ORIG_COLUMNS[var] not in df.columns:
+            df[ORIG_COLUMNS[var]] = df[var]
+        if LABEL_COLUMNS[var] not in df.columns:
+            df[LABEL_COLUMNS[var]] = FaultType.NONE
     if "event_id" not in df.columns:
         df["event_id"] = ""
     return df
 
 
-def _mask(df: pd.DataFrame, station_id: str, t0: pd.Timestamp,
-          duration_h: int) -> pd.Series:
-    """Boolean mask for rows of *station_id* from t0 to t0 + duration_h."""
-    t_end = t0 + pd.Timedelta(hours=duration_h)
-    return (df["station_id"] == station_id) & (df["ts"] >= t0) & (df["ts"] < t_end)
+def _next_event_id(df: pd.DataFrame, prefix: str) -> str:
+    n = df.loc[df["event_id"].str.startswith(prefix + "_"), "event_id"].nunique()
+    return f"{prefix}_{n + 1:03d}"
 
 
-# ===================================================================
-# Individual fault injectors
-# ===================================================================
+# Each fault function changes df[var] in place for the rows in idx.
 
-def _inject_spike(df: pd.DataFrame, var: str, idx: pd.Index,
-                  rng: np.random.Generator, magnitude: float | None, cfg: dict) -> pd.DataFrame:
-    if magnitude is not None:
-        mag = magnitude
-    else:
+def _spike(df, var, idx, rng, magnitude, cfg):
+    if magnitude is None:
         lo, hi = cfg["inject"]["SPIKE"][var]
-        mag = rng.uniform(lo, hi) * rng.choice([-1, 1])
-    df.loc[idx, var] = df.loc[idx, var].astype(float) + mag
-    return df
+        if var == "rh_pct":
+            # go towards the side with room, otherwise clipping at 0/100 hides the spike
+            sign = -1 if df.loc[idx, var].mean() > 50 else 1
+        else:
+            sign = rng.choice([-1, 1])
+        magnitude = sign * rng.uniform(lo, hi)
+    df.loc[idx, var] += magnitude
 
 
-def _inject_frozen(df: pd.DataFrame, var: str, idx: pd.Index,
-                   _rng, _mag, _cfg) -> pd.DataFrame:
-    if len(idx) == 0:
-        return df
-    valid_vals = df.loc[idx, var].dropna()
-    if len(valid_vals) == 0:
-        return df
-    frozen_val = valid_vals.iloc[0]
-    df.loc[idx, var] = frozen_val
-    return df
+def _frozen(df, var, idx, rng, magnitude, cfg):
+    valid = df.loc[idx, var].dropna()
+    if len(valid):
+        df.loc[idx, var] = valid.iloc[0]
 
 
-def _inject_drift(df: pd.DataFrame, var: str, idx: pd.Index,
-                  rng: np.random.Generator, magnitude: float | None, cfg: dict) -> pd.DataFrame:
-    n = len(idx)
-    if n == 0:
-        return df
-    if magnitude is not None:
-        total = magnitude
-    else:
+def _drift(df, var, idx, rng, magnitude, cfg):
+    if magnitude is None:
         lo, hi = cfg["inject"]["DRIFT"][var]
-        total = rng.uniform(lo, hi) * rng.choice([-1, 1])
-    ramp = np.linspace(0, total, n)
-    df.loc[idx, var] += ramp
-    return df
+        magnitude = rng.choice([-1, 1]) * rng.uniform(lo, hi)
+    df.loc[idx, var] += np.linspace(0, magnitude, len(idx))
 
 
-def _inject_dropout(df: pd.DataFrame, var: str, idx: pd.Index,
-                    rng: np.random.Generator, _mag, _cfg) -> pd.DataFrame:
+def _dropout(df, var, idx, rng, magnitude, cfg):
+    # 0 is an obvious failure only for pressure; 0 °C or 0 % RH can look plausible
+    modes = {"nan": np.nan, "sentinel": -9999.0}
     if var == "pressure_hpa":
-        mode = rng.choice(["nan", "sentinel", "zero"])
-    else:
-        mode = rng.choice(["nan", "sentinel"])
-        
-    if mode == "nan":
-        df.loc[idx, var] = np.nan
-    elif mode == "sentinel":
-        df.loc[idx, var] = -9999.0
-    else:
-        df.loc[idx, var] = 0.0
-    return df
+        modes["zero"] = 0.0
+    df.loc[idx, var] = modes[rng.choice(list(modes))]
 
 
-def _inject_noise(df: pd.DataFrame, var: str, idx: pd.Index,
-                  rng: np.random.Generator, magnitude: float | None, cfg: dict) -> pd.DataFrame:
-    base_std = df[var].diff().std()
+def _noise(df, var, idx, rng, magnitude, cfg):
+    # scale by this station's normal hour-to-hour change, ignoring rows that are already faulty
+    station = df.at[idx[0], "station_id"]
+    lo, hi = cfg["physics"]["range"][var]
+    series = df.loc[(df["station_id"] == station) & (df[LABEL_COLUMNS[var]] == FaultType.NONE), var]
+    step_std = series.where(series.between(lo, hi)).diff().std()
     mult = magnitude if magnitude is not None else rng.uniform(*cfg["inject"]["NOISE_SIGMA_MULT"])
-    sigma = mult * base_std
-    noise = rng.normal(0, sigma, size=len(idx))
-    df.loc[idx, var] += noise
-    return df
+    df.loc[idx, var] += rng.normal(0, mult * step_std, size=len(idx))
 
 
-def _inject_oor(df: pd.DataFrame, var: str, idx: pd.Index,
-                rng: np.random.Generator, _mag, cfg: dict) -> pd.DataFrame:
-    ranges = cfg["physics"]["range"]
-    if var == "temp_c":
-        rail = rng.choice([ranges[var][0] - 5, ranges[var][1] + 5])
-    elif var == "pressure_hpa":
-        rail = rng.choice([ranges[var][0] - 10, ranges[var][1] + 10])
-    elif var == "rh_pct":
-        rail = rng.choice([-5, 105])
-    df.loc[idx, var] = float(rail)
-    return df
+def _out_of_range(df, var, idx, rng, magnitude, cfg):
+    lo, hi = cfg["physics"]["range"][var]
+    margin = cfg["inject"]["OUT_OF_RANGE_MARGIN"][var]
+    df.loc[idx, var] = float(rng.choice([lo - margin, hi + margin]))
 
 
 _INJECTORS = {
-    FaultType.SPIKE: _inject_spike,
-    FaultType.FROZEN: _inject_frozen,
-    FaultType.DRIFT: _inject_drift,
-    FaultType.DROPOUT: _inject_dropout,
-    FaultType.NOISE: _inject_noise,
-    FaultType.OUT_OF_RANGE: _inject_oor,
+    FaultType.SPIKE: _spike,
+    FaultType.FROZEN: _frozen,
+    FaultType.DRIFT: _drift,
+    FaultType.DROPOUT: _dropout,
+    FaultType.NOISE: _noise,
+    FaultType.OUT_OF_RANGE: _out_of_range,
 }
 
-
-# ===================================================================
-# Public API
-# ===================================================================
 
 def inject_fault(df: pd.DataFrame, station_id: str, var: str, fault_type: str,
                  t0: pd.Timestamp, duration_h: int, magnitude: float | None = None,
                  event_id: str | None = None, seed: int = 42) -> pd.DataFrame:
-    """Inject one fault into one variable of one station, starting at t0."""
+    """Inject one fault into one variable of one station for duration_h hours from t0.
+
+    magnitude overrides the random size, sign included (e.g. +23 for the demo spike).
+    For NOISE it is the multiple of the station's normal hourly change.
+    """
     if fault_type not in _INJECTORS:
-        raise ValueError(f"Unknown fault_type {fault_type!r}. Choose from {list(_INJECTORS.keys())}")
+        raise ValueError(f"unknown fault type {fault_type!r}, expected one of {FaultType.FAULTS}")
 
     df = add_label_columns(df)
-    rng = np.random.default_rng(seed)
-    cfg = load_config()
-    label_col = LABEL_COLUMNS[var]
-
-    sel = _mask(df, station_id, t0, duration_h)
-    idx = df.index[sel]
-
+    t0 = pd.Timestamp(t0)
+    rows = (df["station_id"] == station_id) & (df["ts"] >= t0) & (df["ts"] < t0 + pd.Timedelta(hours=duration_h))
+    idx = df.index[rows]
     if len(idx) == 0:
         return df
 
-    df = _INJECTORS[fault_type](df, var, idx, rng, magnitude, cfg)
-
-    # clip RH to [0, 100]
-    if var == "rh_pct" and fault_type not in (FaultType.DROPOUT, FaultType.OUT_OF_RANGE):
+    _INJECTORS[fault_type](df, var, idx, np.random.default_rng(seed), magnitude, load_config())
+    if var == "rh_pct" and fault_type in (FaultType.SPIKE, FaultType.DRIFT, FaultType.NOISE):
         df.loc[idx, var] = df.loc[idx, var].clip(0, 100)
 
-    # set labels
-    df.loc[idx, label_col] = fault_type
-    
-    if event_id is None:
-        existing = df["event_id"].str.startswith(f"{fault_type}_").sum()
-        event_id = f"{fault_type}_{existing + 1:03d}"
-    
-    df.loc[idx, "event_id"] = event_id
-
+    df.loc[idx, LABEL_COLUMNS[var]] = fault_type
+    df.loc[idx, "event_id"] = event_id or _next_event_id(df, fault_type)
     return df
 
 
 def inject_storm(df: pd.DataFrame, stations: list[dict], center_id: str,
-                 t0: pd.Timestamp, radius_km: float = 80, strength: float = 1.0,
+                 t0: pd.Timestamp, radius_km: float | None = None, strength: float = 1.0,
                  event_id: str | None = None, seed: int = 42) -> pd.DataFrame:
-    """Inject a coherent thunderstorm across neighbouring stations."""
+    """A thunderstorm at every station within radius_km of center_id.
+
+    The start at each station is delayed by distance / front speed. Temperature drops
+    while humidity and pressure rise over onset_h hours, then all relax exponentially.
+    """
+    cfg = load_config()["inject"]["STORM"]
     df = add_label_columns(df)
     rng = np.random.default_rng(seed)
+    radius_km = radius_km or cfg["radius_km"]
 
-    t_drop = rng.uniform(4, 10) * strength
-    rh_rise = rng.uniform(15, 35) * strength
-    p_rise = rng.uniform(1, 4) * strength
-    onset_h = rng.integers(1, 3)
-    relax_h = 6
-
-    if event_id is None:
-        existing = df.loc[df["event_id"].str.startswith("STORM_", na=False), "event_id"].nunique()
-        event_id = f"STORM_{existing + 1:03d}"
-
+    onset_h = int(rng.integers(cfg["onset_h"][0], cfg["onset_h"][1] + 1))
+    shape = np.concatenate([
+        np.arange(1, onset_h + 1) / onset_h,
+        np.exp(-np.arange(cfg["relax_h"]) / cfg["relax_tau_h"]),
+    ])
+    amplitude = {
+        "temp_c": -rng.uniform(*cfg["temp_drop"]) * strength,
+        "rh_pct": rng.uniform(*cfg["rh_rise"]) * strength,
+        "pressure_hpa": rng.uniform(*cfg["pressure_rise"]) * strength,
+    }
+    event_id = event_id or _next_event_id(df, "STORM")
     center = next(s for s in stations if s["station_id"] == center_id)
+    t0 = pd.Timestamp(t0)
 
     for stn in stations:
-        sid = stn["station_id"]
         dist = haversine_km(center["lat"], center["lon"], stn["lat"], stn["lon"])
         if dist > radius_km:
             continue
-
-        delay_h = int(round(dist / 30.0))
-        local_t0 = t0 + pd.Timedelta(hours=delay_h)
-
-        total_h = onset_h + relax_h
-        t_profile = np.zeros(total_h)
-        for i in range(onset_h):
-            t_profile[i] = -t_drop * (i + 1) / onset_h
-        for i in range(relax_h):
-            t_profile[onset_h + i] = -t_drop * np.exp(-i / 3.0)
-
-        rh_profile = np.zeros(total_h)
-        for i in range(onset_h):
-            rh_profile[i] = rh_rise * (i + 1) / onset_h
-        for i in range(relax_h):
-            rh_profile[onset_h + i] = rh_rise * np.exp(-i / 3.0)
-
-        p_profile = np.zeros(total_h)
-        for i in range(onset_h):
-            p_profile[i] = p_rise * (i + 1) / onset_h
-        for i in range(relax_h):
-            p_profile[onset_h + i] = p_rise * np.exp(-i / 3.0)
-
-        for step in range(total_h):
-            ts = local_t0 + pd.Timedelta(hours=step)
-            row_mask = (df["station_id"] == sid) & (df["ts"] == ts)
-            if row_mask.any():
-                df.loc[row_mask, "temp_c"] = df.loc[row_mask, "temp_c"].astype(float) + t_profile[step]
-                df.loc[row_mask, "rh_pct"] = (df.loc[row_mask, "rh_pct"].astype(float) + rh_profile[step]).clip(0, 100)
-                df.loc[row_mask, "pressure_hpa"] = df.loc[row_mask, "pressure_hpa"].astype(float) + p_profile[step]
-                df.loc[row_mask, "event_id"] = event_id
-
+        start = t0 + pd.Timedelta(hours=round(dist / cfg["front_speed_kmh"]))
+        end = start + pd.Timedelta(hours=len(shape))
+        idx = df.index[(df["station_id"] == stn["station_id"]) & (df["ts"] >= start) & (df["ts"] < end)]
+        step = ((df.loc[idx, "ts"] - start) // pd.Timedelta(hours=1)).to_numpy()
+        for var, amp in amplitude.items():
+            df.loc[idx, var] += amp * shape[step]
+        df.loc[idx, "rh_pct"] = df.loc[idx, "rh_pct"].clip(0, 100)
+        df.loc[idx, "event_id"] = event_id
     return df
 
 
 def build_test_set(df: pd.DataFrame, stations: list[dict] | None = None,
                    seed: int = 42) -> pd.DataFrame:
-    """~40 faults of each type + ~10 storms, non-overlapping, on the given data slice."""
-    if stations is None:
-        from skyguard.data.io import load_stations
-        stations = load_stations()
-        
+    """Storms first, then faults of every type, on the given data slice.
+
+    Nothing overlaps at a station: every event keeps inject.test_set.gap_h clear hours
+    around it. Counts come from config.yaml -> inject.test_set.
+    """
+    cfg = load_config()
+    plan, storm = cfg["inject"]["test_set"], cfg["inject"]["STORM"]
+    stations = stations or load_stations()
     df = add_label_columns(df)
     rng = np.random.default_rng(seed)
-    cfg = load_config()
 
     station_ids = sorted(df["station_id"].unique())
-    all_ts = sorted(df["ts"].unique())
-    n_ts = len(all_ts)
+    hours = pd.DatetimeIndex(sorted(df["ts"].unique()))
+    busy = {sid: np.zeros(len(hours), dtype=bool) for sid in station_ids}
+    gap = plan["gap_h"]
 
-    # Track occupied time slots per station (across ALL variables) to avoid overlaps
-    occupied: dict[str, set[int]] = {
-        sid: set() for sid in station_ids
-    }
-
-    from typing import Optional
-    def _find_free_slot(sid: str, dur_h: int, attempts: int = 200) -> Optional[int]:
-        occ = occupied[sid]
-        for _ in range(attempts):
-            start = rng.integers(0, max(1, n_ts - dur_h))
-            span = set(range(start, start + dur_h))
-            if not span & occ:
-                return int(start)
+    def free_slot(sids, length):
+        for _ in range(200):
+            start = int(rng.integers(0, max(1, len(hours) - length)))
+            window = slice(max(0, start - gap), start + length + gap)
+            if not any(busy[s][window].any() for s in sids):
+                return start
         return None
 
-    def _find_free_slot_multi(sids: list[str], dur_h: int, attempts: int = 200) -> Optional[int]:
-        """Find a slot free across ALL given stations."""
-        for _ in range(attempts):
-            start = rng.integers(0, max(1, n_ts - dur_h))
-            span = set(range(start, start + dur_h))
-            if all(not (span & occupied[s]) for s in sids):
-                return int(start)
-        return None
+    def reserve(sids, start, length):
+        for s in sids:
+            busy[s][max(0, start - gap): start + length + gap] = True
 
-    def _mark_occupied(sid: str, start_idx: int, dur_h: int):
-        buf = 6
-        occupied[sid].update(range(max(0, start_idx - buf),
-                                   min(n_ts, start_idx + dur_h + buf)))
-
-    # --- Inject ~10 storms FIRST ---
-    storm_count = 0
-    storm_seed = int(rng.integers(0, 2**31))
-    for _ in range(10):
-        center_id = rng.choice(station_ids)
-        
-        # Find stations within storm radius
-        center_stn = next(s for s in stations if s["station_id"] == center_id)
-        affected_sids = []
-        for stn in stations:
-            dist = haversine_km(center_stn["lat"], center_stn["lon"], stn["lat"], stn["lon"])
-            if dist <= 80 and stn["station_id"] in station_ids:
-                affected_sids.append(stn["station_id"])
-        
-        # Check ALL affected stations are free
-        slot = _find_free_slot_multi(affected_sids, 8)
-        if slot is None:
+    # longest a storm can last at the farthest station
+    storm_len = storm["onset_h"][1] + storm["relax_h"] + math.ceil(storm["radius_km"] / storm["front_speed_kmh"])
+    n_storms = 0
+    for _ in range(plan["storms"]):
+        center_id = str(rng.choice(station_ids))
+        center = next(s for s in stations if s["station_id"] == center_id)
+        affected = [
+            s["station_id"] for s in stations
+            if s["station_id"] in busy
+            and haversine_km(center["lat"], center["lon"], s["lat"], s["lon"]) <= storm["radius_km"]
+        ]
+        start = free_slot(affected, storm_len)
+        if start is None:
             continue
+        n_storms += 1
+        df = inject_storm(df, stations, center["station_id"], hours[start],
+                          strength=rng.uniform(*storm["strength"]),
+                          event_id=f"STORM_{n_storms:03d}", seed=int(rng.integers(2**31)))
+        reserve(affected, start, storm_len)
 
-        t0 = pd.Timestamp(all_ts[slot])
-        storm_strength = rng.uniform(0.7, 1.3)
-        storm_seed += 1
-        
-        event_id = f"STORM_{storm_count + 1:03d}"
-        df = inject_storm(df, stations, center_id, t0,
-                          radius_km=80, strength=storm_strength, 
-                          event_id=event_id, seed=storm_seed)
-
-        for sid in affected_sids:
-            _mark_occupied(sid, slot, 10)
-
-        storm_count += 1
-
-    # --- Inject ~40 of each fault type ---
-    injected_count: dict[str, int] = {ft: 0 for ft in FaultType.FAULTS}
-    fault_seed = int(rng.integers(0, 2**31))
-
+    counts = dict.fromkeys(FaultType.FAULTS, 0)
     for fault_type in FaultType.FAULTS:
-        target = 40
-        lo_dur, hi_dur = cfg["inject"]["DURATION_RANGE"][fault_type]
-
-        for _ in range(target):
-            sid = rng.choice(station_ids)
-            var = rng.choice(VARIABLES)
-            dur = int(rng.integers(lo_dur, hi_dur + 1))
-
-            slot = _find_free_slot(sid, dur)
-            if slot is None:
+        lo, hi = cfg["inject"]["DURATION_RANGE"][fault_type]
+        for _ in range(plan["faults_per_type"]):
+            sid = str(rng.choice(station_ids))
+            var = str(rng.choice(VARIABLES))
+            duration = int(rng.integers(lo, hi + 1))
+            start = free_slot([sid], duration)
+            if start is None:
                 continue
+            counts[fault_type] += 1
+            df = inject_fault(df, sid, var, fault_type, hours[start], duration,
+                              event_id=f"{fault_type}_{counts[fault_type]:03d}",
+                              seed=int(rng.integers(2**31)))
+            reserve([sid], start, duration)
 
-            t0 = pd.Timestamp(all_ts[slot])
-            fault_seed += 1
-            
-            event_id = f"{fault_type}_{injected_count[fault_type] + 1:03d}"
-            df = inject_fault(df, sid, var, fault_type, t0, dur, event_id=event_id, seed=fault_seed)
-            _mark_occupied(sid, slot, dur)
-            injected_count[fault_type] += 1
-
-    print(f"Injected faults: {injected_count}")
-    print(f"Injected storms: {storm_count}")
-
+    print(f"  storms: {n_storms}, faults: {counts}")
     return df
+
+
+def main() -> None:
+    cfg = load_config()
+    df, stations = load_data(), load_stations()
+    INJECTED_DIR.mkdir(parents=True, exist_ok=True)
+    for offset, split in enumerate(("val", "test")):
+        print(f"{split}:")
+        injected = build_test_set(select_split(df, split, cfg), stations, seed=cfg["seed"] + offset)
+        path = INJECTED_DIR / f"{split}.parquet"
+        injected.to_parquet(path, index=False)
+        print(f"  saved {len(injected):,} rows to {path}")
+
+
+if __name__ == "__main__":
+    main()

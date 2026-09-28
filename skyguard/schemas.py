@@ -12,6 +12,7 @@ NAMES = {"temp_c": "Temperature", "pressure_hpa": "Pressure", "rh_pct": "Humidit
 
 DATA_COLUMNS = ["station_id", "ts", *VARIABLES]
 LABEL_COLUMNS = {v: f"label_{v}" for v in VARIABLES}
+ORIG_COLUMNS = {v: f"orig_{v}" for v in VARIABLES}   # clean value before a fault was injected
 EVENT_COLUMN = "event_id"
 
 

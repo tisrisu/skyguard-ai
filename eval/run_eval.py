@@ -14,34 +14,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd  # noqa: E402
 
-from skyguard.config import INJECTED_DIR, REPORTS_DIR  # noqa: E402
+from skyguard.config import INJECTED_DIR, REPORTS_DIR, load_config  # noqa: E402
+from skyguard.data.climatology import Climatology  # noqa: E402
+from skyguard.data.io import load_data, load_stations, select_split  # noqa: E402
+from skyguard.engine import Engine  # noqa: E402
+from skyguard.evaluation import evaluate  # noqa: E402
+from skyguard.models.iforest import IFModel  # noqa: E402
 
 
 def run(labelled: pd.DataFrame) -> dict:
-    from skyguard.config import load_config
-    from skyguard.data.io import load_data, load_stations
-    from skyguard.data.climatology import Climatology
-    from skyguard.models.iforest import IFModel
-    from skyguard.engine import Engine
-    from skyguard.evaluation import evaluate
-
     cfg = load_config()
-    df_all = load_data()
-    stations = load_stations()
-
-    train_start, train_end = cfg["splits"]["train"]
-    # train_end is "2023-12-31" which parses to 00:00:00, use < "2024-01-01" to include the whole day
-    train_end_exclusive = str(pd.to_datetime(train_end) + pd.Timedelta(days=1)).split()[0]
-    train_df = df_all[(df_all["ts"] >= train_start) & (df_all["ts"] < train_end_exclusive)]
-
-    clim = Climatology().fit(train_df)
-    
-    model = IFModel.load()
-
-    engine = Engine(df=labelled, stations=stations, clim=clim, model=model, cfg=cfg)
-    results_df = engine.run(labelled["ts"].min(), labelled["ts"].max())
-
-    return evaluate(results_df, labelled)
+    clim = Climatology().fit(select_split(load_data(), "train", cfg))
+    engine = Engine(df=labelled, stations=load_stations(), clim=clim, model=IFModel.load(), cfg=cfg)
+    results = engine.run(labelled["ts"].min(), labelled["ts"].max())
+    return evaluate(results, labelled)
 
 
 def main() -> None:
@@ -53,7 +39,9 @@ def main() -> None:
     metrics = run(labelled)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    (REPORTS_DIR / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    out = REPORTS_DIR / "metrics.json"
+    out.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    print(f"Saved {out}")
 
 
 if __name__ == "__main__":

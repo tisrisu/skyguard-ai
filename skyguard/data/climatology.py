@@ -4,115 +4,72 @@ Owner: M1
 
 Used by the neighbour check (to remove altitude and local-climate differences),
 by severity (deviation in standard deviations) and by imputation.
+Fit on the train split only.
 """
 
-import numpy as np
 import pandas as pd
 
-VARIABLES = ["temp_c", "pressure_hpa", "rh_pct"]
+from skyguard.config import load_config
+from skyguard.schemas import VARIABLES
 
-# Config will be loaded in fit() to determine std floors
+
+def _utc(ts) -> pd.Timestamp:
+    ts = pd.Timestamp(ts)
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
 
 
 class Climatology:
-    """Mean and std of each variable per (station_id, month, hour-of-day).
-
-    Fit on the training split only so that the model never sees test data.
-    """
-
     def __init__(self):
-        # Index: (station_id, month, hour)
-        # Columns: MultiIndex (var, "mean") and (var, "std")
-        self.table: pd.DataFrame | None = None
+        self.table: pd.DataFrame | None = None   # index (station_id, month, hour), columns (var, "mean"/"std")
+        self._rows: dict = {}                    # same data as plain tuples, for fast single lookups
+        self._cols: dict = {}
 
-    # ------------------------------------------------------------------
-    # Fitting
-    # ------------------------------------------------------------------
     def fit(self, df: pd.DataFrame) -> "Climatology":
-        """Compute mean and std of each variable per (station_id, month, hour).
-        Fit on the train split only. Use a std floor (e.g. 0.3 C / 0.5 hPa / 2 %)
-        to avoid dividing by ~0.
-        """
-        df = df.copy()
-        df["ts"] = pd.to_datetime(df["ts"], utc=True)
-        df["month"] = df["ts"].dt.month
-        df["hour"] = df["ts"].dt.hour
+        """Mean and std per (station_id, month, hour). std is floored (config climatology.std_floor)."""
+        floors = load_config()["climatology"]["std_floor"]
+        ts = pd.to_datetime(df["ts"], utc=True)
+        grouped = df.groupby([df["station_id"], ts.dt.month.rename("month"), ts.dt.hour.rename("hour")])
 
-        grouped = df.groupby(["station_id", "month", "hour"])
-
-        records = {}
+        parts = {}
         for var in VARIABLES:
-            if var not in df.columns:
-                continue
-            agg = grouped[var].agg(["mean", "std"])
-            from skyguard.config import load_config
-            cfg = load_config()
-            std_floors = cfg.get("climatology", {}).get("std_floor", {})
-            floor = std_floors.get(var, 0.3)
-            agg["std"] = agg["std"].fillna(floor).clip(lower=floor)
-            records[var] = agg
+            stats = grouped[var].agg(["mean", "std"])
+            stats["std"] = stats["std"].fillna(floors[var]).clip(lower=floors[var])
+            parts[var] = stats
+        self.table = pd.concat(parts, axis=1)
 
-        # combine into a single DataFrame with MultiIndex columns: (var, mean/std)
-        self.table = pd.concat(records, axis=1)
+        self._cols = {col: i for i, col in enumerate(self.table.columns)}
+        self._rows = dict(zip(self.table.index, self.table.itertuples(index=False, name=None)))
         return self
 
-    # ------------------------------------------------------------------
-    # Scalar lookup
-    # ------------------------------------------------------------------
-    def expected(self, station_id: str, ts: pd.Timestamp | str, var: str) -> tuple[float, float]:
-        """(mean, std) for this station, month and hour.
-
-        Returns (NaN, NaN) if the key is missing (unseen station / sparse data).
-        """
+    def expected(self, station_id: str, ts, var: str) -> tuple[float, float]:
+        """(mean, std) for this station at the month and hour of ts. (NaN, NaN) if unknown."""
         if self.table is None:
-            raise RuntimeError("Climatology not fitted. Call .fit() first.")
-
-        if isinstance(ts, str):
-            ts = pd.Timestamp(ts, tz="UTC")
-        elif getattr(ts, "tzinfo", None) is None:
-            ts = pd.Timestamp(ts, tz="UTC")
-            
-        key = (station_id, ts.month, ts.hour)
-        try:
-            row = self.table.loc[key]
-            return float(row[(var, "mean")]), float(row[(var, "std")])
-        except KeyError:
+            raise RuntimeError("Climatology is not fitted, call fit() first")
+        ts = _utc(ts)
+        row = self._rows.get((station_id, ts.month, ts.hour))
+        if row is None:
             return float("nan"), float("nan")
+        return float(row[self._cols[(var, "mean")]]), float(row[self._cols[(var, "std")]])
 
-    # ------------------------------------------------------------------
-    # Vectorised anomaly
-    # ------------------------------------------------------------------
+    def _stats_for(self, df: pd.DataFrame, var: str) -> pd.DataFrame:
+        """Climatology mean and std for every row of df, in df's order."""
+        if self.table is None:
+            raise RuntimeError("Climatology is not fitted, call fit() first")
+        ts = pd.to_datetime(df["ts"], utc=True)
+        keys = pd.MultiIndex.from_arrays([df["station_id"], ts.dt.month, ts.dt.hour])
+        stats = self.table[var].reindex(keys)
+        stats.index = df.index
+        return stats
+
     def anomaly(self, df: pd.DataFrame, var: str) -> pd.Series:
         """Vectorised: df[var] minus the expected mean for each row."""
-        if self.table is None:
-            raise RuntimeError("Climatology not fitted. Call .fit() first.")
-
-        df = df.copy()
-        df["ts"] = pd.to_datetime(df["ts"], utc=True)
-        df["_month"] = df["ts"].dt.month
-        df["_hour"] = df["ts"].dt.hour
-
-        # merge the climatology mean for each row
-        means = self.table[(var, "mean")].rename("_clim_mean")
-        merged = df.join(means, on=["station_id", "_month", "_hour"])
-        return df[var] - merged["_clim_mean"]
+        return df[var] - self._stats_for(df, var)["mean"]
 
     def deviation_sigma(self, df: pd.DataFrame, var: str) -> pd.Series:
-        """(value - mean) / std -- how many standard deviations away."""
-        if self.table is None:
-            raise RuntimeError("Climatology not fitted. Call .fit() first.")
-
-        df = df.copy()
-        df["ts"] = pd.to_datetime(df["ts"], utc=True)
-        df["_month"] = df["ts"].dt.month
-        df["_hour"] = df["ts"].dt.hour
-
-        clim = self.table[[var]].copy()
-        clim.columns = ["_clim_mean", "_clim_std"]
-        merged = df.join(clim, on=["station_id", "_month", "_hour"])
-        return (df[var] - merged["_clim_mean"]) / merged["_clim_std"].replace(0, np.nan)
+        """(value - mean) / std for each row."""
+        stats = self._stats_for(df, var)
+        return (df[var] - stats["mean"]) / stats["std"]
 
 
 def climatology(df: pd.DataFrame) -> Climatology:
-    """Convenience function matching the signature in DEMO_PLAN 4.2."""
     return Climatology().fit(df)
