@@ -13,6 +13,7 @@ from skyguard.geo import haversine_km
 from skyguard.physics.dewpoint import dewpoint_c
 from skyguard.schemas import FaultType, NAMES, UNITS, VARIABLES, Status
 
+TZ = "UTC"               # observations are timed in UTC, as IMD reports them
 IST = "Asia/Kolkata"
 
 PAPER = "#F4EFE3"
@@ -155,7 +156,7 @@ def station_chart(values: pd.DataFrame, results: pd.DataFrame, median: pd.DataFr
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08,
                         subplot_titles=[f"{NAMES[v]} ({UNITS[v]})" for v in VARIABLES])
     ts = values["ts"]
-    x = ts.dt.tz_convert(IST)
+    x = ts.dt.tz_convert(TZ)
     weather = results.loc[results["status"] == Status.GENUINE_EVENT, "ts"]
     valid = {}
 
@@ -171,7 +172,7 @@ def station_chart(values: pd.DataFrame, results: pd.DataFrame, median: pd.DataFr
         corrected = res["corrected_value"].where(flagged)
 
         fig.add_trace(go.Scatter(
-            x=median.index.tz_convert(IST), y=median[var], name="Neighbour median",
+            x=median.index.tz_convert(TZ), y=median[var], name="Neighbour median",
             line=dict(color=MUTED, width=1.3, dash="dot"), legendgroup="median", showlegend=first,
             hovertemplate=f"Neighbours %{{y:.1f}} {unit}<extra></extra>",
         ), row=row, col=1)
@@ -201,8 +202,8 @@ def station_chart(values: pd.DataFrame, results: pd.DataFrame, median: pd.DataFr
         ), row=row, col=1)
 
         for start, end in _hour_runs(weather):
-            fig.add_vrect(x0=start.tz_convert(IST) - pd.Timedelta(minutes=30),
-                          x1=end.tz_convert(IST) + pd.Timedelta(minutes=30),
+            fig.add_vrect(x0=start.tz_convert(TZ) - pd.Timedelta(minutes=30),
+                          x1=end.tz_convert(TZ) + pd.Timedelta(minutes=30),
                           fillcolor=MONSOON, opacity=0.12, line_width=0, row=row, col=1)
 
     limit = cfg["physics"]["dewpoint_max_c"]
@@ -245,7 +246,7 @@ def health_strip(results: pd.DataFrame, stations: list[dict], now: pd.Timestamp,
         scale += [[i / len(steps), color], [(i + 1) / len(steps), color]]
 
     fig = go.Figure(go.Heatmap(
-        z=grid.to_numpy(), x=grid.columns.tz_convert(IST), y=labels,
+        z=grid.to_numpy(), x=grid.columns.tz_convert(TZ), y=labels,
         zmin=-0.5, zmax=len(steps) - 0.5, colorscale=scale, showscale=False,
         xgap=1, ygap=3, customdata=names,
         hovertemplate="%{y}<br>%{x|%d %b %H:%M}<br>%{customdata}<extra></extra>",

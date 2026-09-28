@@ -4,7 +4,7 @@ from html import escape
 
 import pandas as pd
 
-from charts import IST, STATUS_COLOR, STATUS_LABEL
+from charts import IST, STATUS_COLOR, STATUS_LABEL, TZ
 from skyguard.config import load_config
 from skyguard.schemas import NAMES, UNITS, Status
 
@@ -22,11 +22,11 @@ def section(title: str) -> str:
 
 
 def when(ts: pd.Timestamp) -> str:
-    return ts.tz_convert(IST).strftime("%d %b, %H:%M")
+    return ts.tz_convert(TZ).strftime("%d %b, %H:%M")
 
 
 def header(now: pd.Timestamp, playing: bool, source: str, notice: str | None) -> str:
-    local = now.tz_convert(IST)
+    utc, local = now.tz_convert(TZ), now.tz_convert(IST)
     note = ""
     if notice:
         note = (f'<div class="sg-note">{escape(source)} data: showing the fault injector\'s labels. '
@@ -39,16 +39,34 @@ def header(now: pd.Timestamp, playing: bool, source: str, notice: str | None) ->
   </div>
   <div class="sg-clock">
     <span class="sg-pill{' live' if playing else ''}">{'Replaying' if playing else 'Paused'}</span>
-    <div class="sg-time">{local:%H:%M} <span>IST</span></div>
-    <div class="sg-date">{local:%a %d %b %Y}</div>
+    <div class="sg-time">{utc:%H:%M} <span>UTC</span></div>
+    <div class="sg-date">{utc:%a %d %b %Y} &middot; {local:%H:%M} IST</div>
   </div>
 </div>{note}"""
 
 
-def tiles(k: dict) -> str:
+def band(score: float) -> str:
+    """HEALTHY, WATCH, DEGRADED or FAILED, from config.yaml -> trust.bands."""
+    bands = load_config()["trust"]["bands"]
+    for name in ("HEALTHY", "WATCH", "DEGRADED"):
+        if score >= bands[name]:
+            return name
+    return "FAILED"
+
+
+def tiles(k: dict, names: dict) -> str:
     step = f"{k['step_ms']:.0f} ms" if k["step_ms"] is not None else "&ndash;"
+    if k["lowest_trust"] is None:
+        lowest, lowest_label, lowest_css = "&ndash;", "Lowest sensor trust", ""
+    elif k["lowest_trust"] >= load_config()["trust"]["start"]:
+        lowest, lowest_label, lowest_css = "100<small>/100</small>", "Every sensor at full trust", "trust-healthy"
+    else:
+        sid, var = k["lowest_sensor"]
+        lowest = f"{k['lowest_trust']:.0f}<small>/100</small>"
+        lowest_label = f"Lowest trust &middot; {escape(sid)} {NAMES[var].lower()}"
+        lowest_css = "trust-" + band(k["lowest_trust"]).lower()
     items = [
-        (f"{k['healthy']}<small>/{k['sensors']}</small>", "Sensors healthy", ""),
+        (lowest, lowest_label, lowest_css),
         (k["open_faults"], "Open faults", "alert" if k["open_faults"] else ""),
         (k["faults_24h"], "Faults, last 24 h", ""),
         (k["events_24h"], "Weather events, last 24 h", "weather" if k["events_24h"] else ""),
@@ -57,6 +75,35 @@ def tiles(k: dict) -> str:
     cells = "".join(f'<div class="sg-tile {cls}"><b>{value}</b><span>{label}</span></div>'
                     for value, label, cls in items)
     return f'<div class="sg-tiles">{cells}</div>'
+
+
+def trust_grid(trust: dict, stations: list[dict]) -> str:
+    """Stations down, sensors across, each cell a score and a bar coloured by its band."""
+    head = "".join(f"<th>{NAMES[v]}</th>" for v in ("temp_c", "pressure_hpa", "rh_pct"))
+    rows = []
+    for s in stations:
+        cells = []
+        for var in ("temp_c", "pressure_hpa", "rh_pct"):
+            score = trust.get((s["station_id"], var))
+            if score is None:
+                cells.append('<td class="na">&ndash;</td>')
+                continue
+            css = band(score).lower()
+            cells.append(f'<td class="{css}"><b>{score:.0f}</b>'
+                         f'<span class="bar"><i style="width:{score:.0f}%"></i></span></td>')
+        rows.append(f'<tr><th><b>{escape(s["station_id"])}</b> {escape(s["name"])}</th>{"".join(cells)}</tr>')
+    return f'<table class="sg-trust"><thead><tr><th></th>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+
+
+def attention(todo, names: dict) -> str:
+    """Sensors below trust 50, lowest first."""
+    items = []
+    for r in todo.itertuples(index=False):
+        fault = f" &middot; last fault {r.last_fault.replace('_', ' ').lower()}" if isinstance(r.last_fault, str) else ""
+        items.append(f'<li class="{band(r.trust).lower()}"><b>{r.trust:.0f}</b>'
+                     f'<span>{escape(r.station_id)} {escape(names.get(r.station_id, ""))} &middot; '
+                     f'{NAMES[r.variable]}<small>{band(r.trust).capitalize()}{fault}</small></span></li>')
+    return f'<ul class="sg-attention">{"".join(items)}</ul>'
 
 
 def _reading(value, unit: str) -> str:
@@ -129,7 +176,7 @@ def _weather_card(item: dict, now: pd.Timestamp) -> str:
     return f"""
 <div class="sg-card weather">
   <div class="sg-top"><span class="sg-badge WEATHER">WEATHER</span>
-    <span>{when(item['start'])} &ndash; {item['end'].tz_convert(IST):%H:%M} {live}</span></div>
+    <span>{when(item['start'])} &ndash; {item['end'].tz_convert(TZ):%H:%M} {live}</span></div>
   <div class="sg-title">Weather event at {len(stations)} station{'s' if len(stations) > 1 else ''}</div>
   <div class="sg-kind">Genuine event &middot; no action needed</div>
   <div class="sg-values"><small>{escape(', '.join(stations))}</small></div>

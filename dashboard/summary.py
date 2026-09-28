@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from skyguard.schemas import NAMES, VARIABLES, Severity, Status, worst_status
+from skyguard.schemas import NAMES, Severity, Status, worst_status
 
 FLAGGED = (Status.SENSOR_FAULT, Status.SUSPECT)
 SEVERITY_ORDER = {s: i for i, s in enumerate(Severity.ALL)}
@@ -89,10 +89,15 @@ def weather_events(results: pd.DataFrame) -> list[dict]:
     return events
 
 
-def alert_feed(results: pd.DataFrame, since: pd.Timestamp, limit: int = 8) -> list[dict]:
-    """Fault runs and weather events that were active after `since`, newest first."""
-    items = [x for x in fault_runs(results) + weather_events(results) if x["end"] >= since]
-    return sorted(items, key=lambda x: (x["end"], x["start"]), reverse=True)[:limit]
+def alert_feed(results: pd.DataFrame, now: pd.Timestamp, limit: int = 30) -> tuple[list[dict], list[dict]]:
+    """(active, earlier): alerts still going at `now`, and the rest of the kept history.
+
+    Newest start first in both, so a card keeps its place while its event goes on.
+    """
+    items = sorted(fault_runs(results) + weather_events(results), key=lambda x: x["start"], reverse=True)
+    active = [x for x in items if x["end"] == now]
+    earlier = [x for x in items if x["end"] != now]
+    return active, earlier[: max(limit - len(active), 0)]
 
 
 def station_status(results: pd.DataFrame, now: pd.Timestamp) -> dict[str, dict]:
@@ -108,9 +113,10 @@ def kpis(results: pd.DataFrame, now: pd.Timestamp, step_ms: list[float]) -> dict
     day = results[results["ts"] > now - pd.Timedelta(hours=24)]
     current = results[results["ts"] == now]
     runs = fault_runs(day)
+    lowest = current.loc[current["trust"].idxmin()] if not current.empty else None
     return {
-        "healthy": int((current["trust"] >= 80).sum()),
-        "sensors": len(current),
+        "lowest_trust": None if lowest is None else float(lowest["trust"]),
+        "lowest_sensor": None if lowest is None else (lowest["station_id"], lowest["variable"]),
         "open_faults": sum(r["end"] == now for r in runs),
         "faults_24h": len(runs),
         "events_24h": len(weather_events(day)),
@@ -118,14 +124,10 @@ def kpis(results: pd.DataFrame, now: pd.Timestamp, step_ms: list[float]) -> dict
     }
 
 
-def trust_table(results: pd.DataFrame, now: pd.Timestamp, names: dict) -> pd.DataFrame:
-    """Stations x sensors trust score at `now`."""
+def trust_now(results: pd.DataFrame, now: pd.Timestamp) -> dict[tuple[str, str], float]:
+    """Trust score of every sensor at `now`, keyed by (station_id, variable)."""
     current = results[results["ts"] == now]
-    table = current.pivot(index="station_id", columns="variable", values="trust")
-    table = table.reindex(columns=list(VARIABLES))
-    table.insert(0, "station", [names.get(s, s) for s in table.index])
-    table.index.name = "ID"
-    return table
+    return {(r.station_id, r.variable): float(r.trust) for r in current.itertuples(index=False)}
 
 
 def maintenance(results: pd.DataFrame, now: pd.Timestamp, threshold: float = 50) -> pd.DataFrame:

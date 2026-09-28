@@ -30,9 +30,9 @@ def test_spike_becomes_one_fault_card(replay):
     at = replay.inject_spike("A")
     replay.advance(2)
 
-    feed = summary.alert_feed(replay.results, replay.now - pd.Timedelta(hours=48))
-    assert len(feed) == 1
-    card = feed[0]
+    active, earlier = summary.alert_feed(replay.results, replay.now)
+    assert active == [] and len(earlier) == 1
+    card = earlier[0]
     assert (card["station_id"], card["variable"], card["fault_type"]) == ("A", "temp_c", "SPIKE")
     assert card["value"] == pytest.approx(55.0)
     assert card["start"] == at
@@ -43,7 +43,8 @@ def test_storm_is_one_weather_card_for_all_stations(replay):
     replay.inject_storm("A")
     replay.advance(12)
 
-    feed = summary.alert_feed(replay.results, replay.now - pd.Timedelta(hours=48))
+    active, earlier = summary.alert_feed(replay.results, replay.now)
+    feed = active + earlier
     assert [c["kind"] for c in feed] == ["weather"]
     assert sorted(feed[0]["stations"]) == ["A", "B", "C"]
     assert summary.kpis(replay.results, replay.now, replay.step_ms)["faults_24h"] == 0
@@ -67,7 +68,8 @@ def test_evidence_separates_fault_from_weather(replay):
     replay.inject_storm("B")
     replay.advance(4)
 
-    feed = summary.alert_feed(replay.results, replay.now - pd.Timedelta(hours=48))
+    active, earlier = summary.alert_feed(replay.results, replay.now)
+    feed = active + earlier
     fault = next(c for c in feed if c["kind"] == "fault")
     weather = next(c for c in feed if c["kind"] == "weather")
     z_limit = load_config()["spatial"]["z_threshold"]
@@ -86,3 +88,24 @@ def test_alert_log_lists_every_event(replay):
     log = summary.alert_log(replay.results, {"A": "Alpha"}, "Asia/Kolkata")
     assert set(log["status"]) == {"SENSOR_FAULT", "GENUINE_EVENT"}
     assert log.loc[log["status"] == "SENSOR_FAULT", "station"].item() == "A Alpha"
+
+
+def test_cards_keep_their_order_while_an_event_goes_on(replay):
+    replay.inject_spike("A")
+    replay.advance(2)
+    replay.inject_freeze("B", hours=6)
+    replay.advance(1)
+    first = [c["start"] for c in sum(summary.alert_feed(replay.results, replay.now), [])]
+    replay.advance(3)
+    active, earlier = summary.alert_feed(replay.results, replay.now)
+    assert [c["start"] for c in active + earlier] == first     # frozen sensor still first, spike below it
+    assert active[0]["fault_type"] == "FROZEN"
+
+
+def test_lowest_trust_tile_reacts_to_a_fault(replay):
+    before = summary.kpis(replay.results, replay.now, replay.step_ms)["lowest_trust"]
+    replay.inject_spike("C")
+    replay.advance(1)
+    k = summary.kpis(replay.results, replay.now, replay.step_ms)
+    assert k["lowest_trust"] < before
+    assert k["lowest_sensor"] == ("C", "temp_c")

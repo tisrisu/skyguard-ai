@@ -23,7 +23,7 @@ from replay import Replay  # noqa: E402
 from skyguard.config import REPORTS_DIR, load_config  # noqa: E402
 from skyguard.data.io import load_data, load_stations, select_split  # noqa: E402
 from skyguard.geo import neighbours  # noqa: E402
-from skyguard.schemas import NAMES, VARIABLES  # noqa: E402
+from skyguard.schemas import VARIABLES  # noqa: E402
 
 START = "2024-08-01"            # replay starts here (test split, monsoon)
 TICK_SECONDS = 1.0
@@ -74,11 +74,11 @@ def sidebar(r: Replay, names: dict):
         # no widget key on purpose: keyed state can be reset to a default between reruns,
         # which silently jumped the replay. The chosen day lives in jumped_to instead.
         day = st.date_input("Jump to", value=st.session_state.jumped_to, format="DD/MM/YYYY",
-                            min_value=r.hours[0].tz_convert(charts.IST).date(),
-                            max_value=r.hours[-1].tz_convert(charts.IST).date())
+                            min_value=r.hours[0].date(),
+                            max_value=r.hours[-1].date())
         if day != st.session_state.jumped_to:
             st.session_state.jumped_to = day
-            r.jump(pd.Timestamp(day).tz_localize(charts.IST))
+            r.jump(pd.Timestamp(day, tz="UTC"))
 
         st.html(cards.section("Station"))
         st.selectbox("Station", list(names), format_func=lambda s: f"{s}  {names[s]}",
@@ -140,15 +140,18 @@ def live_tab(r: Replay, names: dict):
                         config=charts.PLOT_CONFIG, width="stretch")
         st.html(cards.LEGEND)
     with right:
-        st.html(cards.section(f"Alerts, last {WINDOW_HOURS} h"))
-        feed = summary.alert_feed(r.results, r.now - pd.Timedelta(hours=WINDOW_HOURS))
+        st.html(cards.section("Alerts"))
+        active, earlier = summary.alert_feed(r.results, r.now)
         with st.container(height=470, border=False):
-            if not feed:
-                st.html(cards.empty(f"No alerts in the last {WINDOW_HOURS} hours."))
-            for item in feed:
-                st.html(cards.alert_card(item, names, r.now))
+            if not active and not earlier:
+                st.html(cards.empty("Nothing flagged yet. Use the demo buttons on the left to add a fault."))
+            for title, items in (("Active now", active), ("Earlier", earlier)):
+                if items:
+                    st.html(f'<p class="sg-group">{title}</p>')
+                for item in items:
+                    st.html(cards.alert_card(item, names, r.now))
 
-    st.html(cards.section(f"{sid} {names[sid]}, last {WINDOW_HOURS} h"))
+    st.html(cards.section(f"{sid} {names[sid]}, last {WINDOW_HOURS} h (UTC)"))
     values, results, median = station_window(r, sid)
     st.plotly_chart(charts.station_chart(values, results, median, r.cfg), key="station_chart",
                     config=charts.PLOT_CONFIG, width="stretch")
@@ -160,33 +163,24 @@ def health_tab(r: Replay, names: dict):
                     config=charts.PLOT_CONFIG, width="stretch")
     st.html(cards.LEGEND)
 
-    left, right = st.columns([1.4, 1], gap="large")
-    with left:
-        st.html(cards.section("Trust score now"))
-        columns = {"station": st.column_config.TextColumn("Station")}
-        for var in VARIABLES:
-            columns[var] = st.column_config.ProgressColumn(NAMES[var], min_value=0, max_value=100, format="%.0f")
-        st.dataframe(summary.trust_table(r.results, r.now, names), column_config=columns, width="stretch")
-    with right:
-        st.html(cards.section("Needs attention"))
-        todo = summary.maintenance(r.results, r.now)
-        if todo.empty:
-            st.html(cards.empty("Every sensor has a trust score of 50 or more."))
-        else:
-            todo["variable"] = todo["variable"].map(NAMES)
-            st.dataframe(todo, hide_index=True, width="stretch", column_config={
-                "station_id": "Station", "variable": "Sensor", "last_fault": "Last fault",
-                "trust": st.column_config.ProgressColumn("Trust", min_value=0, max_value=100, format="%.0f"),
-            })
+    st.html(cards.section("Needs attention"))
+    todo = summary.maintenance(r.results, r.now)
+    if todo.empty:
+        st.html(cards.empty("Every sensor has a trust score of 50 or more."))
+    else:
+        st.html(cards.attention(todo, names))
 
-    st.html(cards.section("Alert log, last 7 days (IST)"))
-    log = summary.alert_log(r.results, names, charts.IST)
+    st.html(cards.section("Trust score now"))
+    st.html(cards.trust_grid(summary.trust_now(r.results, r.now), r.stations))
+
+    st.html(cards.section("Alert log, last 7 days (UTC)"))
+    log = summary.alert_log(r.results, names, charts.TZ)
     if log.empty:
         st.html(cards.empty("Nothing flagged yet."))
         return
     st.dataframe(log, hide_index=True, width="stretch", height=min(38 + 35 * len(log), 320))
     st.download_button("Download CSV", log.to_csv(index=False).encode("utf-8"), icon=":material/download:",
-                       file_name=f"skyguard_alerts_{r.now.tz_convert(charts.IST):%Y%m%d_%H%M}.csv",
+                       file_name=f"skyguard_alerts_{r.now:%Y%m%d_%H%M}.csv",
                        mime="text/csv")
 
 
@@ -211,7 +205,7 @@ def page():
     names = {s["station_id"]: s["name"] for s in r.stations}
 
     st.html(cards.header(r.now, st.session_state.playing, r.source.name, r.notice))
-    st.html(cards.tiles(summary.kpis(r.results, r.now, r.step_ms)))
+    st.html(cards.tiles(summary.kpis(r.results, r.now, r.step_ms), names))
 
     live, health, score = st.tabs(["Live monitor", "Sensor health", "Scorecard"])
     with live:
