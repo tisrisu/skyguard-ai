@@ -21,6 +21,8 @@ For every station and every hour:
 5. **Fault type, explanation and corrected value**
 6. **Trust score** update for the sensor
 
+**Data Note**: The data used in this repository for the demo is ECMWF/ERA5 reanalysis data at IMD station locations fetched via the Open-Meteo Archive API, not real station observations.
+
 ## Project layout
 
 ```

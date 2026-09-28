@@ -83,3 +83,31 @@ drift_tolerance:
 replay:
   seconds_per_step: 1.0
   history_hours: 72
+
+inject:
+  SPIKE:
+    temp_c: [5, 25]
+    pressure_hpa: [5, 40]
+    rh_pct: [20, 50]
+  DRIFT:
+    temp_c: [2, 5]
+    pressure_hpa: [2, 6]
+    rh_pct: [8, 20]
+  NOISE_SIGMA_MULT: [1.5, 4.0]
+  DURATION_RANGE:
+    SPIKE: [1, 2]
+    FROZEN: [6, 48]
+    DRIFT: [72, 240]
+    DROPOUT: [1, 12]
+    NOISE: [6, 24]
+    OUT_OF_RANGE: [6, 48]
+
+climatology:
+  std_floor:
+    temp_c: 0.3
+    pressure_hpa: 0.5
+    rh_pct: 2.0
+
+impute:
+  spatial_weight: 0.7
+  temporal_weight: 0.3

@@ -30,12 +30,13 @@ def run(labelled: pd.DataFrame) -> dict:
     stations = load_stations()
 
     train_start, train_end = cfg["splits"]["train"]
-    train_df = df_all[(df_all["ts"] >= train_start) & (df_all["ts"] <= train_end)]
+    # train_end is "2023-12-31" which parses to 00:00:00, use < "2024-01-01" to include the whole day
+    train_end_exclusive = str(pd.to_datetime(train_end) + pd.Timedelta(days=1)).split()[0]
+    train_df = df_all[(df_all["ts"] >= train_start) & (df_all["ts"] < train_end_exclusive)]
 
     clim = Climatology().fit(train_df)
     
-    model = IFModel()
-    model.load()
+    model = IFModel.load()
 
     engine = Engine(df=labelled, stations=stations, clim=clim, model=model, cfg=cfg)
     results_df = engine.run(labelled["ts"].min(), labelled["ts"].max())

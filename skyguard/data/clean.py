@@ -7,6 +7,7 @@ Writes: data/processed/ncr_hourly.parquet  (station_id, ts, temp_c, pressure_hpa
         data/sample_2stations.parquet      (first 2 stations, one month — unblocks teammates)
 """
 
+import numpy as np
 import pandas as pd
 
 from skyguard.config import load_config, RAW_DIR, PROCESSED_DIR, HOURLY_FILE, DATA_DIR
@@ -35,10 +36,20 @@ def clean_station(df: pd.DataFrame, max_gap_h: int) -> pd.DataFrame:
     df = df.reindex(full_idx)
     df.index.name = "ts"
 
-    # interpolate only short gaps (limit = max_gap_h consecutive NaNs)
+    # interpolate only short gaps (gaps <= max_gap_h hours are filled; longer stay NaN)
     for col in VARIABLES:
         if col in df.columns:
-            df[col] = df[col].interpolate(method="linear", limit=max_gap_h)
+            mask = df[col].isna()
+            if not mask.any():
+                continue
+            blocks = mask.ne(mask.shift()).cumsum()
+            gap_len = df.groupby(blocks)[col].transform(
+                lambda x: len(x) if x.isna().all() else 0
+            )
+            
+            interp = df[col].interpolate(method="linear")
+            # Keep original NaN where gap is too long (> max_gap_h)
+            df[col] = interp.where(gap_len <= max_gap_h, other=np.nan)
 
     return df.reset_index()
 

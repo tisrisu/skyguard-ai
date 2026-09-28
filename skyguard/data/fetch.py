@@ -7,7 +7,7 @@ Writes:
   data/raw/<station_id>.parquet       one file per station
   data/stations.json                  list of {station_id, name, lat, lon, elevation_m}
 
-Data source: Open-Meteo Archive API (free, no key, reanalysis + observations).
+Data source: Open-Meteo Archive API (free, no key, ECMWF/ERA5 reanalysis at IMD station locations).
 Falls back from Meteostat (bulk endpoint returns 403 as of 2026).
 """
 
@@ -37,7 +37,7 @@ VARIABLES = ["temp_c", "pressure_hpa", "rh_pct"]
 # Mapping from Open-Meteo field names → our column names
 _OM_MAP = {
     "temperature_2m": "temp_c",
-    "surface_pressure": "pressure_hpa",
+    "pressure_msl": "pressure_hpa",
     "relative_humidity_2m": "rh_pct",
 }
 
@@ -57,7 +57,7 @@ def _fetch_open_meteo(lat: float, lon: float, start: str, end: str) -> pd.DataFr
     params = (
         f"latitude={lat}&longitude={lon}"
         f"&start_date={start}&end_date={end}"
-        "&hourly=temperature_2m,relative_humidity_2m,surface_pressure"
+        "&hourly=temperature_2m,relative_humidity_2m,pressure_msl"
         "&timezone=UTC"
     )
     url = f"https://archive-api.open-meteo.com/v1/archive?{params}"
@@ -70,7 +70,7 @@ def _fetch_open_meteo(lat: float, lon: float, start: str, end: str) -> pd.DataFr
     df = pd.DataFrame({
         "ts": pd.to_datetime(hourly["time"], utc=True),
         "temp_c": hourly.get("temperature_2m"),
-        "pressure_hpa": hourly.get("surface_pressure"),
+        "pressure_hpa": hourly.get("pressure_msl"),
         "rh_pct": hourly.get("relative_humidity_2m"),
     })
     return df

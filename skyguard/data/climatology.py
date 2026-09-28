@@ -11,12 +11,7 @@ import pandas as pd
 
 VARIABLES = ["temp_c", "pressure_hpa", "rh_pct"]
 
-# Minimum std floor to avoid dividing by ~0
-_STD_FLOOR = {
-    "temp_c": 0.3,
-    "pressure_hpa": 0.5,
-    "rh_pct": 2.0,
-}
+# Config will be loaded in fit() to determine std floors
 
 
 class Climatology:
@@ -50,9 +45,11 @@ class Climatology:
             if var not in df.columns:
                 continue
             agg = grouped[var].agg(["mean", "std"])
-            # apply std floor
-            floor = _STD_FLOOR.get(var, 0.3)
-            agg["std"] = agg["std"].clip(lower=floor)
+            from skyguard.config import load_config
+            cfg = load_config()
+            std_floors = cfg.get("climatology", {}).get("std_floor", {})
+            floor = std_floors.get(var, 0.3)
+            agg["std"] = agg["std"].fillna(floor).clip(lower=floor)
             records[var] = agg
 
         # combine into a single DataFrame with MultiIndex columns: (var, mean/std)
@@ -62,7 +59,7 @@ class Climatology:
     # ------------------------------------------------------------------
     # Scalar lookup
     # ------------------------------------------------------------------
-    def expected(self, station_id: str, ts: pd.Timestamp, var: str) -> tuple[float, float]:
+    def expected(self, station_id: str, ts: pd.Timestamp | str, var: str) -> tuple[float, float]:
         """(mean, std) for this station, month and hour.
 
         Returns (NaN, NaN) if the key is missing (unseen station / sparse data).
@@ -70,7 +67,11 @@ class Climatology:
         if self.table is None:
             raise RuntimeError("Climatology not fitted. Call .fit() first.")
 
-        ts = pd.Timestamp(ts, tz="UTC") if ts.tzinfo is None else ts
+        if isinstance(ts, str):
+            ts = pd.Timestamp(ts, tz="UTC")
+        elif getattr(ts, "tzinfo", None) is None:
+            ts = pd.Timestamp(ts, tz="UTC")
+            
         key = (station_id, ts.month, ts.hour)
         try:
             row = self.table.loc[key]
