@@ -11,7 +11,7 @@ import pandas as pd
 
 VARIABLES = ["temp_c", "pressure_hpa", "rh_pct"]
 
-# Minimum std floor to avoid dividing by ≈ 0
+# Minimum std floor to avoid dividing by ~0
 _STD_FLOOR = {
     "temp_c": 0.3,
     "pressure_hpa": 0.5,
@@ -35,11 +35,8 @@ class Climatology:
     # ------------------------------------------------------------------
     def fit(self, df: pd.DataFrame) -> "Climatology":
         """Compute mean and std of each variable per (station_id, month, hour).
-
-        Parameters
-        ----------
-        df : DataFrame with columns station_id, ts, temp_c, pressure_hpa, rh_pct.
-             ts must be a timezone-aware (UTC) datetime.
+        Fit on the train split only. Use a std floor (e.g. 0.3 C / 0.5 hPa / 2 %)
+        to avoid dividing by ~0.
         """
         df = df.copy()
         df["ts"] = pd.to_datetime(df["ts"], utc=True)
@@ -66,7 +63,7 @@ class Climatology:
     # Scalar lookup
     # ------------------------------------------------------------------
     def expected(self, station_id: str, ts: pd.Timestamp, var: str) -> tuple[float, float]:
-        """(mean, std) for this station, month, and hour.
+        """(mean, std) for this station, month and hour.
 
         Returns (NaN, NaN) if the key is missing (unseen station / sparse data).
         """
@@ -85,7 +82,7 @@ class Climatology:
     # Vectorised anomaly
     # ------------------------------------------------------------------
     def anomaly(self, df: pd.DataFrame, var: str) -> pd.Series:
-        """df[var] minus the expected mean for each row (vectorised)."""
+        """Vectorised: df[var] minus the expected mean for each row."""
         if self.table is None:
             raise RuntimeError("Climatology not fitted. Call .fit() first.")
 
@@ -100,7 +97,7 @@ class Climatology:
         return df[var] - merged["_clim_mean"]
 
     def deviation_sigma(self, df: pd.DataFrame, var: str) -> pd.Series:
-        """(value - mean) / std — how many standard deviations away."""
+        """(value - mean) / std -- how many standard deviations away."""
         if self.table is None:
             raise RuntimeError("Climatology not fitted. Call .fit() first.")
 
@@ -116,5 +113,5 @@ class Climatology:
 
 
 def climatology(df: pd.DataFrame) -> Climatology:
-    """Convenience function matching the signature in DEMO_PLAN §4.2."""
+    """Convenience function matching the signature in DEMO_PLAN 4.2."""
     return Climatology().fit(df)
