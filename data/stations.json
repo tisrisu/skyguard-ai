@@ -1,0 +1,58 @@
+[
+  {
+    "station_id": "DEL-01",
+    "name": "Safdarjung",
+    "lat": 28.585,
+    "lon": 77.206,
+    "elevation_m": 216
+  },
+  {
+    "station_id": "DEL-02",
+    "name": "Palam (IGI Airport)",
+    "lat": 28.566,
+    "lon": 77.103,
+    "elevation_m": 230
+  },
+  {
+    "station_id": "DEL-03",
+    "name": "Ayanagar",
+    "lat": 28.47,
+    "lon": 77.109,
+    "elevation_m": 231
+  },
+  {
+    "station_id": "DEL-04",
+    "name": "Hindon (Ghaziabad)",
+    "lat": 28.697,
+    "lon": 77.364,
+    "elevation_m": 211
+  },
+  {
+    "station_id": "DEL-05",
+    "name": "Noida",
+    "lat": 28.535,
+    "lon": 77.391,
+    "elevation_m": 200
+  },
+  {
+    "station_id": "DEL-06",
+    "name": "Gurugram",
+    "lat": 28.457,
+    "lon": 77.026,
+    "elevation_m": 234
+  },
+  {
+    "station_id": "DEL-07",
+    "name": "Faridabad",
+    "lat": 28.408,
+    "lon": 77.31,
+    "elevation_m": 198
+  },
+  {
+    "station_id": "DEL-08",
+    "name": "Rohtak",
+    "lat": 28.895,
+    "lon": 76.606,
+    "elevation_m": 219
+  }
+]

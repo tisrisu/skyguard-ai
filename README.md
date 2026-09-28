@@ -21,6 +21,10 @@ For every station and every hour:
 5. **Fault type, explanation and corrected value**
 6. **Trust score** update for the sensor
 
+## Data
+
+Hourly data for 8 IMD station locations in Delhi-NCR, 2022–2024, from the [Open-Meteo](https://open-meteo.com/) historical weather API. This is ECMWF reanalysis at the station coordinates, not raw station observations. Faults and storms are injected on top of it (`skyguard/inject/injector.py`) so detection can be measured against known labels.
+
 ## Project layout
 
 ```
@@ -65,6 +69,9 @@ pytest
 :: download and prepare data
 python -m skyguard.data.fetch
 python -m skyguard.data.clean
+
+:: build the validation and test sets with injected faults
+python -m skyguard.inject.injector
 
 :: start the dashboard
 run_demo.bat

@@ -14,13 +14,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd  # noqa: E402
 
-from skyguard.config import INJECTED_DIR, REPORTS_DIR  # noqa: E402
+from skyguard.config import INJECTED_DIR, REPORTS_DIR, load_config  # noqa: E402
+from skyguard.data.climatology import Climatology  # noqa: E402
+from skyguard.data.io import load_data, load_stations, select_split  # noqa: E402
+from skyguard.engine import Engine  # noqa: E402
+from skyguard.evaluation import evaluate  # noqa: E402
+from skyguard.models.iforest import IFModel  # noqa: E402
 
 
 def run(labelled: pd.DataFrame) -> dict:
-    """TODO: build Climatology on the train split, load the IFModel,
-    run Engine over `labelled`, then return evaluate(results, labelled)."""
-    raise NotImplementedError
+    cfg = load_config()
+    clim = Climatology().fit(select_split(load_data(), "train", cfg))
+    engine = Engine(df=labelled, stations=load_stations(), clim=clim, model=IFModel.load(), cfg=cfg)
+    results = engine.run(labelled["ts"].min(), labelled["ts"].max())
+    return evaluate(results, labelled)
 
 
 def main() -> None:
@@ -32,7 +39,9 @@ def main() -> None:
     metrics = run(labelled)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    (REPORTS_DIR / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    out = REPORTS_DIR / "metrics.json"
+    out.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    print(f"Saved {out}")
 
 
 if __name__ == "__main__":
