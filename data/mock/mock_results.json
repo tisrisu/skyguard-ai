@@ -1,0 +1,374 @@
+[
+  {
+    "station_id": "DEL-01",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "temp_c",
+    "value": 31.2,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-01",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "pressure_hpa",
+    "value": 999.8,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-01",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "rh_pct",
+    "value": 71,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-02",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "temp_c",
+    "value": 31.6,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-02",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "pressure_hpa",
+    "value": 999.5,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-02",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "rh_pct",
+    "value": 68,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-03",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "temp_c",
+    "value": 55.0,
+    "status": "SENSOR_FAULT",
+    "fault_type": "SPIKE",
+    "confidence": 0.96,
+    "severity": "CRITICAL",
+    "reasons": [
+      "Implied dewpoint 50.4 °C exceeds the physical maximum (~35 °C)",
+      "Temperature rose 23.1 °C in 1 h while pressure and humidity barely changed",
+      "5 of 5 neighbouring stations show normal temperature (z = 9.4)"
+    ],
+    "shap_top": [
+      [
+        "sudden 1-hour change",
+        0.41
+      ],
+      [
+        "distance from normal for this hour and season",
+        0.27
+      ],
+      [
+        "change in moisture content",
+        0.12
+      ]
+    ],
+    "corrected_value": 31.6,
+    "trust": 42.0,
+    "scores": {
+      "physics": 1.0,
+      "iforest": 0.998,
+      "spatial_z": 9.4
+    }
+  },
+  {
+    "station_id": "DEL-03",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "pressure_hpa",
+    "value": 999.3,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-03",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "rh_pct",
+    "value": 80,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-04",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "temp_c",
+    "value": 22.6,
+    "status": "GENUINE_EVENT",
+    "fault_type": null,
+    "confidence": 0.88,
+    "severity": "HIGH",
+    "reasons": [
+      "Temperature fell 8.2 °C in 1 h",
+      "4 of 5 neighbouring stations show the same drop within 2 h (z = 0.7)",
+      "Pressure rose 2.1 hPa and humidity rose 24 %, consistent with a thunderstorm"
+    ],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.5,
+      "iforest": 0.995,
+      "spatial_z": 0.7
+    }
+  },
+  {
+    "station_id": "DEL-04",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "pressure_hpa",
+    "value": 1000.1,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-04",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "rh_pct",
+    "value": 97,
+    "status": "GENUINE_EVENT",
+    "fault_type": null,
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "reasons": [
+      "Humidity rose 24 % in 1 h",
+      "Neighbouring stations show the same rise (z = 0.9)"
+    ],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.991,
+      "spatial_z": 0.9
+    }
+  },
+  {
+    "station_id": "DEL-05",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "temp_c",
+    "value": 30.5,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-05",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "pressure_hpa",
+    "value": 1000.4,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-05",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "rh_pct",
+    "value": 64,
+    "status": "SENSOR_FAULT",
+    "fault_type": "FROZEN",
+    "confidence": 0.93,
+    "severity": "HIGH",
+    "reasons": [
+      "Humidity has reported exactly 64 % for 9 consecutive hours",
+      "Temperature changed 5.3 °C over the same period, so humidity should have moved"
+    ],
+    "shap_top": [],
+    "corrected_value": 74.0,
+    "trust": 58.0,
+    "scores": {
+      "physics": 1.0,
+      "iforest": 0.97,
+      "spatial_z": 3.8
+    }
+  },
+  {
+    "station_id": "DEL-06",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "temp_c",
+    "value": 32.4,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  },
+  {
+    "station_id": "DEL-06",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "pressure_hpa",
+    "value": 1002.6,
+    "status": "SUSPECT",
+    "fault_type": null,
+    "confidence": 0.55,
+    "severity": "MEDIUM",
+    "reasons": [
+      "Pressure is 3.4 hPa above the neighbour median (z = 3.2)",
+      "Only 2 neighbours within range reported this hour"
+    ],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.96,
+      "spatial_z": 3.2
+    }
+  },
+  {
+    "station_id": "DEL-06",
+    "ts": "2024-08-14T09:00:00Z",
+    "variable": "rh_pct",
+    "value": 63,
+    "status": "NORMAL",
+    "fault_type": null,
+    "confidence": 0.0,
+    "severity": null,
+    "reasons": [],
+    "shap_top": [],
+    "corrected_value": null,
+    "trust": 100.0,
+    "scores": {
+      "physics": 0.0,
+      "iforest": 0.42,
+      "spatial_z": 0.4
+    }
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "station_id": "DEL-01",
+    "name": "New Delhi (Safdarjung)",
+    "lat": 28.58,
+    "lon": 77.21,
+    "elevation_m": 216
+  },
+  {
+    "station_id": "DEL-02",
+    "name": "New Delhi (Palam)",
+    "lat": 28.57,
+    "lon": 77.11,
+    "elevation_m": 233
+  },
+  {
+    "station_id": "DEL-03",
+    "name": "Gurugram",
+    "lat": 28.46,
+    "lon": 77.03,
+    "elevation_m": 217
+  },
+  {
+    "station_id": "DEL-04",
+    "name": "Noida",
+    "lat": 28.54,
+    "lon": 77.39,
+    "elevation_m": 200
+  },
+  {
+    "station_id": "DEL-05",
+    "name": "Ghaziabad",
+    "lat": 28.67,
+    "lon": 77.45,
+    "elevation_m": 214
+  },
+  {
+    "station_id": "DEL-06",
+    "name": "Rohtak",
+    "lat": 28.9,
+    "lon": 76.61,
+    "elevation_m": 220
+  }
+]
