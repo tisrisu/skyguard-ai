@@ -77,6 +77,8 @@ python -m skyguard.inject.injector
 run_demo.bat
 ```
 
+The dashboard replays the test period (July to December 2024) hour by hour. Use the sidebar to add a temperature spike, a frozen sensor or a thunderstorm at any station and watch how each one is classified. Until `skyguard/engine.py` is implemented it runs in preview mode and shows the fault injector's labels; the header says so.
+
 ## Team
 
 | Name | Role |
