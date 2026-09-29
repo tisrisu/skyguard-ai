@@ -1,27 +1,40 @@
 """Trust score (0-100) per station and sensor.
 
 Owner: M3
-
-Rules (config.yaml -> trust):
-  start at trust.start
-  SENSOR_FAULT: subtract trust.penalty[severity]
-  GENUINE_EVENT, SUSPECT: no change
-  NORMAL: add trust.recovery_per_clean, capped at trust.start
-Bands: HEALTHY >= 80, WATCH >= 50, DEGRADED >= 25, else FAILED.
 """
+
+from __future__ import annotations
+
+from skyguard.config import load_config
+from skyguard.schemas import Severity, Status
 
 
 class TrustTracker:
     def __init__(self, cfg: dict | None = None):
+        self.cfg = cfg or load_config()
         self.scores: dict[tuple[str, str], float] = {}
 
     def update(self, station_id: str, var: str, status: str, severity: str | None) -> float:
-        """Apply one result and return the new score."""
-        raise NotImplementedError
+        key = (station_id, var)
+        score = self.scores.get(key, float(self.cfg["trust"]["start"]))
+        if status == Status.SENSOR_FAULT:
+            penalty = self.cfg["trust"]["penalty"].get(severity or Severity.LOW, 0)
+            score -= float(penalty)
+        elif status == Status.NORMAL:
+            score += float(self.cfg["trust"]["recovery_per_clean"])
+        score = max(0.0, min(float(self.cfg["trust"]["start"]), score))
+        self.scores[key] = score
+        return score
 
     def get(self, station_id: str, var: str) -> float:
-        raise NotImplementedError
+        return float(self.scores.get((station_id, var), self.cfg["trust"]["start"]))
 
     def band(self, score: float) -> str:
-        """"HEALTHY" | "WATCH" | "DEGRADED" | "FAILED"."""
-        raise NotImplementedError
+        bands = self.cfg["trust"]["bands"]
+        if score >= bands["HEALTHY"]:
+            return "HEALTHY"
+        if score >= bands["WATCH"]:
+            return "WATCH"
+        if score >= bands["DEGRADED"]:
+            return "DEGRADED"
+        return "FAILED"
