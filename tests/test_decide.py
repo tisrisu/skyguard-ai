@@ -291,6 +291,19 @@ class TestEdgeCases:
         )
         assert status == Status.NORMAL
 
+    def test_spatial_z_is_none(self):
+        """spatial with z=None should not raise TypeError."""
+        status, conf, sev = decide(
+            physics(), {"z": None, "n": 0, "consistent": None}, ml_score=0.995, dev_sigma=5.0, cfg=CFG,
+        )
+        assert status == Status.SUSPECT
+
+    def test_none_inputs_handled_gracefully(self):
+        """physics=None, spatial=None, dev_sigma=None should not crash."""
+        status, conf, sev = decide(None, None, ml_score=0.2, dev_sigma=None, cfg=CFG)
+        assert status == Status.NORMAL
+        assert sev is None
+
     def test_empty_physics_and_spatial(self):
         """Minimal dicts with just defaults → NORMAL."""
         status, _, _ = decide({}, {}, ml_score=0.3, dev_sigma=1.0, cfg=CFG)

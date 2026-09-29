@@ -171,13 +171,13 @@ class IFModel:
         logger.info("IFModel saved to %s (%.1f KB)", path, path.stat().st_size / 1024)
 
     @classmethod
-    def load(cls, path: Path = MODELS_DIR / "iforest.joblib") -> "IFModel":
+    def load(cls, path: Path | str = MODELS_DIR / "iforest.joblib") -> "IFModel":
         """Load a previously saved IFModel."""
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(
                 f"{path} not found.  Train the model first:\n"
-                f"  python -m skyguard.models.train"
+                f"  python -m eval.tune_thresholds"
             )
         bundle = joblib.load(path)
         obj = cls()
@@ -185,4 +185,12 @@ class IFModel:
         obj.scalers = bundle["scalers"]
         obj.val_scores = bundle["val_scores"]
         return obj
+
+    def load_weights(self, path: Path | str = MODELS_DIR / "iforest.joblib") -> "IFModel":
+        """Load saved models, scalers, and val_scores into this existing instance."""
+        loaded = self.load(path)
+        self.models = loaded.models
+        self.scalers = loaded.scalers
+        self.val_scores = loaded.val_scores
+        return self
 

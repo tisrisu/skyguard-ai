@@ -47,8 +47,8 @@ def _recent_baseline(col: pd.Series, exclude_last: int = 3,
 # Main function
 # ---------------------------------------------------------------------------
 
-def fingerprint(station_hist: pd.DataFrame, var: str, physics: dict,
-                spatial: dict | None = None) -> str | None:
+def fingerprint(station_hist: pd.DataFrame, var: str, physics: dict | None = None,
+                spatial: dict | None = None, cfg: dict | None = None) -> str | None:
     """Classify the type of sensor fault from the recent signal pattern.
 
     Parameters
@@ -58,21 +58,24 @@ def fingerprint(station_hist: pd.DataFrame, var: str, physics: dict,
         Must contain columns: ``ts``, ``temp_c``, ``pressure_hpa``, ``rh_pct``.
     var : str
         The variable under inspection (one of ``schemas.VARIABLES``).
-    physics : dict
+    physics : dict | None
         Output of ``check_physics()`` for this reading.  May contain
         ``fault_hint`` (``"FROZEN"`` / ``"DROPOUT"`` / ``"OUT_OF_RANGE"``
         / ``None``).  An empty dict is safe (M3's stub not ready yet).
     spatial : dict | None
         Output of ``spatial_check()``.  Used for DRIFT detection.
         ``None`` is safe.
+    cfg : dict | None
+        Full config dict; loaded from ``config.yaml`` if not provided.
 
     Returns
     -------
     One of ``FaultType.FAULTS`` or ``None`` if the pattern doesn't match
     any known fault type.
     """
-    cfg = load_config()
+    cfg = cfg or load_config()
     phys = cfg["physics"]
+    physics = physics or {}
     col = station_hist[var]
 
     if col.empty:

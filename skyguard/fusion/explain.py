@@ -86,20 +86,20 @@ def _shap_contributions(model, features: np.ndarray, var: str,
 # Main function
 # ---------------------------------------------------------------------------
 
-def explain(physics: dict, spatial: dict, ml_score: float, features: np.ndarray, var: str,
+def explain(physics: dict | None, spatial: dict | None, ml_score: float, features: np.ndarray, var: str,
             model=None) -> tuple[list[str], list[tuple[str, float]]]:
     """Return ``(reasons, shap_top)`` for a non-NORMAL result.
 
     Parameters
     ----------
-    physics : dict
+    physics : dict | None
         From ``check_physics()``:
         ``{"hard": bool, "soft": bool, "rule_ids": [...], "reasons": [...]}``.
-        An empty dict ``{}`` is safe.
-    spatial : dict
+        An empty dict ``{}`` or ``None`` is safe.
+    spatial : dict | None
         From ``spatial_check()``:
         ``{"z": float, "n": int, "consistent": bool|None, "reason": str}``.
-        An empty dict ``{}`` is safe.
+        An empty dict ``{}`` or ``None`` is safe.
     ml_score : float
         Percentile from ``IFModel.score()`` — 0 = normal, 1 = most anomalous.
     features : np.ndarray
@@ -122,6 +122,8 @@ def explain(physics: dict, spatial: dict, ml_score: float, features: np.ndarray,
         as ``(plain-English label, |contribution|)``.  Empty when SHAP
         is unavailable or the model is ``None``.
     """
+    physics = physics or {}
+    spatial = spatial or {}
     reasons: list[str] = []
 
     # --- 1. Physics reasons (highest priority, most interpretable) --------

@@ -62,8 +62,7 @@ def load_or_train_model(cfg):
     model_path = MODELS_DIR / "iforest.joblib"
     if model_path.exists():
         print("  Loading saved model...")
-        model = IFModel(cfg)
-        model.load()
+        model = IFModel.load(model_path)
         df = load_data()
         train_df = select_split(df, "train", cfg)
         clim = climatology(train_df)
@@ -163,15 +162,15 @@ def evaluate_thresholds(scores_df, ml_high, ml_suspect, sev_sigma):
     storm = scores_df["is_storm"].values
     clean = ~faulty & ~storm
 
-    # Simulated spatial: faults → disagree, storms/clean → agree
+    # Simulated spatial: faults -> disagree, storms/clean -> agree
     neighbours_disagree = faulty  # only fault rows have spatial disagreement
 
-    # Rule 2a: ml >= high AND neighbours disagree → SENSOR_FAULT
+    # Rule 2a: ml >= high AND neighbours disagree -> SENSOR_FAULT
     is_fault = (ml >= ml_high) & neighbours_disagree
-    # Rule 2b: ml >= high AND neighbours agree → GENUINE_EVENT (not flagged)
-    # Rule 3: ml >= suspect AND neighbours disagree → SUSPECT
+    # Rule 2b: ml >= high AND neighbours agree -> GENUINE_EVENT (not flagged)
+    # Rule 3: ml >= suspect AND neighbours disagree -> SUSPECT
     is_suspect = (ml >= ml_suspect) & (ml < ml_high) & neighbours_disagree
-    # Everything else → NORMAL
+    # Everything else -> NORMAL
 
     flagged = is_fault | is_suspect
 
@@ -245,7 +244,7 @@ def sweep_thresholds(scores_df):
               f"storm={r['storm_far']:.4f}  normal={r['normal_far']:.4f}")
 
     best = valid.iloc[0]
-    print(f"\n  ✅ Best: ml.high={best['ml_high']}, ml.suspect={best['ml_suspect']}, "
+    print(f"\n  [OK] Best: ml.high={best['ml_high']}, ml.suspect={best['ml_suspect']}, "
           f"sev={best['sev_sigma']}")
     print(f"     F1={best['f1']}, storm_far={best['storm_far']}")
     print(f"     Per-fault recall: {best['per_fault_recall']}")
@@ -272,9 +271,9 @@ def update_config(best):
     new_s = best["ml_suspect"]
     new_sv = best["sev_sigma"]
 
-    print(f"  ml.high:        {old_h} → {new_h}")
-    print(f"  ml.suspect:     {old_s} → {new_s}")
-    print(f"  severity_sigma: {old_sv} → {new_sv}")
+    print(f"  ml.high:        {old_h} -> {new_h}")
+    print(f"  ml.suspect:     {old_s} -> {new_s}")
+    print(f"  severity_sigma: {old_sv} -> {new_sv}")
 
     lines = raw.split("\n")
     new_lines = []
@@ -302,7 +301,7 @@ def update_config(best):
 
     from skyguard.config import load_config
     load_config.cache_clear()
-    print("  ✅ config.yaml updated")
+    print("  [OK] config.yaml updated")
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +316,7 @@ if __name__ == "__main__":
     update_config(best)
 
     print("\n" + "=" * 60)
-    print("L6 COMPLETE ✅")
+    print("L6 COMPLETE [OK]")
     print("=" * 60)
     print(f"  ml.high       = {best['ml_high']}")
     print(f"  ml.suspect    = {best['ml_suspect']}")

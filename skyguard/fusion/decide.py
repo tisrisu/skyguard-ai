@@ -43,7 +43,7 @@ def _severity(dev_sigma: float, thresholds: list[float], physics_hard: bool) -> 
     if physics_hard:
         return Severity.CRITICAL
 
-    abs_dev = abs(dev_sigma) if math.isfinite(dev_sigma) else 0.0
+    abs_dev = abs(dev_sigma) if (dev_sigma is not None and math.isfinite(dev_sigma)) else 0.0
 
     if abs_dev >= thresholds[2]:      # >= 10
         return Severity.CRITICAL
@@ -59,18 +59,18 @@ def _severity(dev_sigma: float, thresholds: list[float], physics_hard: bool) -> 
 # Main decision function
 # ---------------------------------------------------------------------------
 
-def decide(physics: dict, spatial: dict, ml_score: float, dev_sigma: float,
+def decide(physics: dict | None, spatial: dict | None, ml_score: float, dev_sigma: float,
            cfg: dict | None = None) -> tuple[str, float, str | None]:
     """Fuse physics, spatial and ML signals into (status, confidence, severity).
 
     Parameters
     ----------
-    physics : dict
+    physics : dict | None
         From ``check_physics()``:
         ``{"hard": bool, "soft": bool, "rule_ids": [...], "reasons": [...]}``.
-    spatial : dict
+    spatial : dict | None
         From ``spatial_check()``:
-        ``{"z": float, "n": int, "consistent": bool | None, "reason": str}``.
+        ``{"z": float | None, "n": int, "consistent": bool | None, "reason": str}``.
     ml_score : float
         Percentile from ``IFModel.score()`` — 0 = normal, 1 = most anomalous.
     dev_sigma : float
@@ -91,13 +91,17 @@ def decide(physics: dict, spatial: dict, ml_score: float, dev_sigma: float,
     ml_suspect = ml_cfg["suspect"]   # 0.95
     sev_thresholds = cfg["severity_sigma"]   # [3, 6, 10]
 
+    physics = physics or {}
+    spatial = spatial or {}
+
     # Sanitise inputs
-    if not math.isfinite(ml_score):
+    if ml_score is None or not math.isfinite(ml_score):
         ml_score = 0.0
 
-    physics_hard = physics.get("hard", False)
-    physics_soft = physics.get("soft", False)
-    spatial_z = abs(spatial.get("z", 0.0)) if math.isfinite(spatial.get("z", 0.0)) else 0.0
+    physics_hard = bool(physics.get("hard", False))
+    physics_soft = bool(physics.get("soft", False))
+    z_raw = spatial.get("z")
+    spatial_z = abs(z_raw) if (z_raw is not None and math.isfinite(z_raw)) else 0.0
     consistent = spatial.get("consistent")       # True / False / None
 
     # Convenience: neighbours disagree = consistent is explicitly False
