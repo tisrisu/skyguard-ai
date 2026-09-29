@@ -1,7 +1,4 @@
-"""Runs the full M1/M2/M3 detection pipeline hour by hour.
 
-Owner: M3
-"""
 
 from __future__ import annotations
 

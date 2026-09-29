@@ -1,6 +1,4 @@
 """Trust score (0-100) per station and sensor.
-
-Owner: M3
 """
 
 from __future__ import annotations

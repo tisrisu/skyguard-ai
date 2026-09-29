@@ -1,6 +1,4 @@
 """Neighbour/spatial consistency check.
-
-Owner: M3
 """
 
 from __future__ import annotations
